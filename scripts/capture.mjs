@@ -14,12 +14,29 @@ const LASTRUN_PATH = 'data/last_run.json';
 const CUM_PATH = 'data/cumulative.csv';
 const WATCH_PATH = 'watch_goodscodes.txt';
 
-const HEADER = [
-  'captured_date', 'captured_time', 'rank', 'goodscode', 'title', 'list_price_yen',
-  'shop_id', 'shop_name', 'brand', 'ref_price_yen', 'sell_price_yen',
-  'timesale_price_yen', 'timesale_hours', 'megapo_coupon_pct', 'megapoint',
-  'watch', 'prev_rank', 'change', 'url',
+const COLS = [
+  ['captured_date', '저장일'],
+  ['captured_time', '저장시각'],
+  ['rank', '순위'],
+  ['goodscode', '상품코드'],
+  ['title', '상품명'],
+  ['list_price_yen', '최종가'],
+  ['shop_id', '점포ID'],
+  ['shop_name', '점포명'],
+  ['brand', '브랜드'],
+  ['ref_price_yen', '참고가격'],
+  ['sell_price_yen', '판매가격'],
+  ['timesale_price_yen', '타임세일가'],
+  ['timesale_hours', '타임세일시간'],
+  ['megapo_coupon_pct', '메가포쿠폰할인율'],
+  ['megapoint', '포인트'],
+  ['watch', '자사상품'],
+  ['prev_rank', '이전순위'],
+  ['change', '변동'],
+  ['url', '상품URL'],
 ];
+const KEYS = COLS.map((c) => c[0]);
+const LABELS = COLS.map((c) => c[1]);
 
 const mode = process.argv[2] || 'ranking';
 
@@ -213,9 +230,9 @@ try {
     });
 
     // append to single cumulative CSV
-    const body = rows.map((r) => HEADER.map((h) => csvField(r[h])).join(',')).join('\r\n') + '\r\n';
+    const body = rows.map((r) => KEYS.map((k) => csvField(r[k])).join(',')).join('\r\n') + '\r\n';
     if (!fs.existsSync(CUM_PATH)) {
-      fs.writeFileSync(CUM_PATH, '﻿' + HEADER.join(',') + '\r\n' + body); // BOM for Excel
+      fs.writeFileSync(CUM_PATH, '﻿' + LABELS.join(',') + '\r\n' + body); // BOM for Excel
     } else {
       fs.appendFileSync(CUM_PATH, body);
     }
