@@ -1,0 +1,69 @@
+name: Qoo10 Megapo Capture
+
+on:
+  schedule:
+    - cron: '5 * * * *'    # hourly ranking (JST every hour at :05)
+    - cron: '30 0 * * *'   # daily 00:30 UTC = 09:30 JST full-page screenshot
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'ranking or screenshot'
+        required: false
+        default: 'ranking'
+
+concurrency:
+  group: capture
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Determine mode
+        id: mode
+        run: |
+          MODE="ranking"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            MODE="${{ github.event.inputs.mode }}"
+          elif [ "${{ github.event.schedule }}" = "30 0 * * *" ]; then
+            MODE="screenshot"
+          fi
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+
+      - name: Install Playwright
+        run: |
+          npm install playwright@1
+          npx playwright install --with-deps chromium
+
+      - name: Capture
+        run: node scripts/capture.mjs ${{ steps.mode.outputs.mode }}
+
+      - name: Keepalive (prevent 60-day auto-disable)
+        if: github.event_name == 'schedule'
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/capture.yml/enable"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then
+            echo "no changes"
+          else
+            git commit -m "capture(${{ steps.mode.outputs.mode }}): $(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M JST')"
+            git pull --rebase
+            git push
+          fi
