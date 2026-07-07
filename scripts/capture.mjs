@@ -5,8 +5,14 @@ import { chromium } from 'playwright';
 import fs from 'node:fs';
 import zlib from 'node:zlib';
 
-const RANKING_URL = 'https://www.qoo10.jp/gmkt.inc/Special/Special.aspx?sid=22';
-const EVENT_URL = 'https://www.qoo10.jp/gmkt.inc/Special/Special.aspx?sid=1422';
+// URLs come from event_config.txt (edited per event); fallbacks are the 2026-07 megapo pages
+const cfgText = fs.existsSync('event_config.txt') ? fs.readFileSync('event_config.txt', 'utf8') : '';
+const cfgVal = (key, def) => {
+  const m = cfgText.match(new RegExp('^' + key + '\\s*:\\s*(\\S+)', 'm'));
+  return m ? m[1] : def;
+};
+const RANKING_URL = cfgVal('ranking_url', 'https://www.qoo10.jp/gmkt.inc/Special/Special.aspx?sid=22');
+const EVENT_URL = cfgVal('event_url', 'https://www.qoo10.jp/gmkt.inc/Special/Special.aspx?sid=1422');
 const GOODS_URL = (code) => `https://www.qoo10.jp/gmkt.inc/goods/goods.aspx?goodscode=${code}`;
 const ENRICH_TTL_HOURS = 3;
 const CACHE_PATH = 'data/product_cache.json';
@@ -28,7 +34,7 @@ const COLS = [
   ['sell_price_yen', '판매가격'],
   ['timesale_price_yen', '타임세일가'],
   ['timesale_hours', '타임세일시간'],
-  ['megapo_coupon_pct', '메가포쿠폰할인율'],
+  ['megapo_coupon_pct', '쿠폰할인율'],
   ['megapoint', '포인트'],
   ['watch', '자사상품'],
   ['prev_rank', '이전순위'],
@@ -241,8 +247,9 @@ try {
     for (const it of items) ranks[it.goodscode] = it.rank;
     fs.writeFileSync(LASTRUN_PATH, JSON.stringify({ captured: `${t.date} ${t.hm}`, ranks }));
 
-    // watch-hit screenshot of the ranking page
-    if (watchHits.length > 0) {
+    // ranking page screenshot: hourly when watch items present, plus daily at the 23:45 JST run
+    const dailyShot = parseInt(t.hm.slice(0, 2), 10) === 23;
+    if (watchHits.length > 0 || dailyShot) {
       ensureDir('data/screenshots');
       await page.goto(RANKING_URL, { waitUntil: 'domcontentloaded', timeout: 90000 });
       await page.waitForSelector('ul.megasale_rank_list li', { timeout: 60000 });
@@ -259,7 +266,7 @@ try {
         type: 'jpeg',
         quality: 75,
       });
-      console.log(`watch screenshot saved (${watchHits.join(',')})`);
+      console.log(`ranking screenshot saved (daily=${dailyShot}, watch=${watchHits.join(',') || '-'})`);
     }
 
     console.log(

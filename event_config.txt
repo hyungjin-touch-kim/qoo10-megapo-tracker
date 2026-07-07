@@ -1,0 +1,13 @@
+# 이벤트 설정 — 매 이벤트마다 이 파일만 수정하면 됩니다 (GitHub 웹에서 편집 가능)
+#
+# period : 이벤트 기간 (JST). 종료일이 지나면 워크플로가 스스로 Disable.
+#          시작일 이전에는 수집을 건너뜀 (시작일이 되면 자동 개시).
+# ranking_url / event_url : 매달 바뀌는 랭킹/이벤트 페이지 주소.
+#
+# 다음 이벤트 준비: 아래 세 줄 수정 → Actions 탭에서 워크플로 Enable.
+# (3·6·9·11월 메가와리는 페이지 구조가 다를 수 있음 — 첫날 실행 결과 확인,
+#  실패(빨간 X) 시 파싱 수정 필요)
+
+period: 2026-07-01 ~ 2026-07-09
+ranking_url: https://www.qoo10.jp/gmkt.inc/Special/Special.aspx?sid=22
+event_url: https://www.qoo10.jp/gmkt.inc/Special/Special.aspx?sid=1422

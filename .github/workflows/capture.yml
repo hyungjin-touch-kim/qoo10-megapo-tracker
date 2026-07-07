@@ -2,8 +2,8 @@ name: Qoo10 Megapo Capture
 
 on:
   schedule:
-    - cron: '5 * * * *'    # hourly ranking (JST every hour at :05)
-    - cron: '30 0 * * *'   # daily 00:30 UTC = 09:30 JST full-page screenshot
+    - cron: '45 * * * *'   # hourly ranking (JST every hour at :45; 23:45 run also saves ranking screenshot)
+    - cron: '30 0 * * *'   # daily 00:30 UTC = 09:30 JST event page full screenshot
   workflow_dispatch:
     inputs:
       mode:
@@ -30,7 +30,7 @@ jobs:
         id: period
         run: |
           TODAY=$(TZ=Asia/Tokyo date +%F)
-          RANGE=$(grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2} *~ *[0-9]{4}-[0-9]{2}-[0-9]{2}' event_period.txt | head -1 || true)
+          RANGE=$(grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2} *~ *[0-9]{4}-[0-9]{2}-[0-9]{2}' event_config.txt | head -1 || true)
           START=$(echo "$RANGE" | grep -oE '^[0-9]{4}-[0-9]{2}-[0-9]{2}' || true)
           END=$(echo "$RANGE" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}$' || true)
           echo "today=$TODAY start=$START end=$END"
