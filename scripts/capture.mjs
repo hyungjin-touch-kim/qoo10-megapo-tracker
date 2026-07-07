@@ -18,7 +18,7 @@ const ENRICH_TTL_HOURS = 3;
 const CACHE_PATH = 'data/product_cache.json';
 const LASTRUN_PATH = 'data/last_run.json';
 const CUM_PATH = 'data/cumulative.csv';
-const WATCH_PATH = 'watch_goodscodes.txt';
+const WATCH_PATH = 'watch_list.txt';
 
 const COLS = [
   ['captured_date', '저장일'],
@@ -147,11 +147,15 @@ try {
     const html = await page.content();
     fs.writeFileSync(`data/html/ranking_realtime_${t.file}.html.gz`, zlib.gzipSync(Buffer.from(html, 'utf8')));
 
-    // watch list
-    const watchSet = new Set();
+    // watch list: numeric lines = goodscode, text lines = brand/shop name substring (case-insensitive)
+    const watchCodes = new Set();
+    const watchNames = [];
     if (fs.existsSync(WATCH_PATH)) {
-      for (const line of fs.readFileSync(WATCH_PATH, 'utf8').split(/\r?\n/)) {
-        if (/^\d+$/.test(line.trim())) watchSet.add(line.trim());
+      for (const raw of fs.readFileSync(WATCH_PATH, 'utf8').split(/\r?\n/)) {
+        const s = raw.trim();
+        if (!s || s.startsWith('#')) continue;
+        if (/^\d+$/.test(s)) watchCodes.add(s);
+        else watchNames.push(s.toLowerCase());
       }
     }
 
@@ -210,7 +214,8 @@ try {
           newCnt++;
         }
       }
-      const watch = watchSet.has(it.goodscode) ? 'Y' : '';
+      const hay = `${info.brand} ${info.shop_name}`.toLowerCase();
+      const watch = watchCodes.has(it.goodscode) || watchNames.some((n) => hay.includes(n)) ? 'Y' : '';
       if (watch) watchHits.push(it.goodscode);
       return {
         captured_date: t.date,
