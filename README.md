@@ -14,8 +14,8 @@ Qoo10 Japan メガポ 이벤트 자동 기록 (GitHub Actions).
 
 - 수동 실행: Actions 탭 → "Qoo10 Megapo Capture" → Run workflow (mode: `ranking` / `screenshot`)
 - 워치리스트 수정: GitHub 웹에서 `watch_goodscodes.txt` 편집 (한 줄에 코드 1개)
-- **이벤트 종료 후 Actions 탭에서 워크플로 Disable 필수** (무료 실행시간 절약)
-- 다음 메가포 때 sid가 바뀌면 `scripts/capture.mjs` 상단 URL 두 곳 수정
+- **이벤트 기간 자동 관리**: `event_period.txt`에 기간(JST)을 적어두면 종료일 다음 실행 때 워크플로가 스스로 Disable, 시작일 전에는 수집만 건너뜀 (수동 실행은 기간 무관 항상 동작)
+- 다음 메가포 준비: `scripts/capture.mjs` 상단 sid 2곳 + `event_period.txt` 기간 수정 → Actions 탭에서 워크플로 Enable
 
 ## 참고
 
