@@ -36,7 +36,7 @@ const COLS = [
   ['timesale_hours', '타임세일시간'],
   ['megapo_coupon_pct', '쿠폰할인율'],
   ['megapoint', '포인트'],
-  ['watch', '자사상품'],
+  ['watch', '자사상품여부'],
   ['prev_rank', '이전순위'],
   ['change', '변동'],
   ['url', '상품URL'],
