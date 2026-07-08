@@ -89,12 +89,9 @@ jobs:
         if: steps.period.outputs.run == 'true'
         run: node scripts/capture.mjs ${{ steps.mode.outputs.mode }}
 
-      - name: Keepalive (prevent 60-day auto-disable)
-        if: steps.period.outputs.run == 'true' && github.event_name == 'schedule'
-        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/capture.yml/enable"
-        env:
-          GH_TOKEN: ${{ github.token }}
-
+      # NOTE: keepalive(enable API) 단계는 제거함 — 매 실행마다 스케줄 재등록을 유발해
+      # cron이 ~6시간씩 정지하는 원인으로 의심(2026-07-08 관측). 이벤트는 10일 이내 +
+      # 매 이벤트 수동 Enable이므로 60일 자동 비활성은 애초에 해당 없음.
       - name: Commit results
         if: steps.period.outputs.run == 'true'
         run: |
