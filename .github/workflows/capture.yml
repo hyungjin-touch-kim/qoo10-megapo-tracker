@@ -3,6 +3,7 @@ name: Qoo10 Megapo Capture
 on:
   schedule:
     - cron: '45 * * * *'   # hourly ranking (JST every hour at :45; 23:45 run also saves ranking screenshot)
+    - cron: '15 * * * *'   # backup tick: captures only if the :45 tick was missed (guard in period step)
     - cron: '30 0 * * *'   # daily 00:30 UTC = 09:30 JST event page full screenshot
   workflow_dispatch:
     inputs:
@@ -44,6 +45,18 @@ jobs:
           elif [ -n "$START" ] && [ "$TODAY" \< "$START" ]; then
             RUN=false
             echo "event not started yet ($START) -> skip"
+          fi
+          # backup tick (:15): skip when the primary :45 tick already captured within 75 min
+          if [ "$RUN" = "true" ] && [ "${{ github.event.schedule }}" = "15 * * * *" ] && [ -f data/last_run.json ]; then
+            LAST=$(jq -r '.captured // empty' data/last_run.json)
+            if [ -n "$LAST" ]; then
+              DIFF=$(( $(date +%s) - $(TZ=Asia/Tokyo date -d "$LAST" +%s) ))
+              echo "last capture: $LAST JST (${DIFF}s ago)"
+              if [ "$DIFF" -lt 4500 ]; then
+                RUN=false
+                echo "recent capture exists -> backup tick not needed"
+              fi
+            fi
           fi
           echo "run=$RUN" >> "$GITHUB_OUTPUT"
         env:
