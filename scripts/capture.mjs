@@ -298,7 +298,10 @@ try {
     if (dailyShot) {
       ensureDir('data/screenshots');
       const collected = [];
+      const failures = [];
+      // 마지막 날 자정 직후 페이지가 닫혀도 그때까지 수집한 세트는 저장되도록 세트별 실패를 허용
       for (const set of AMOUNT_SETS) {
+        try {
         await page.evaluate((s) => loadRankingData('Q', s.tab, s.group, s.age), set);
         await page.waitForFunction(
           (s) => window.type === 'Q' && window.tab === s.tab && Number(window.groupCode) === s.group && Number(window.age) === s.age,
@@ -355,7 +358,14 @@ try {
         }
         console.log(`amount ${set.key}: ${setItems.length} items, top3 ${setItems.slice(0, 3).map((x) => x.goodscode).join('/')}`);
         collected.push({ set, items: setItems });
+        } catch (e) {
+          failures.push(`${set.key}: ${e.message}`);
+          console.log(`amount ${set.key} FAILED: ${e.message} -> stopping remaining sets`);
+          break; // 페이지 종료(자정) 가능성 — 이후 세트도 실패할 것이므로 중단
+        }
       }
+      if (failures.length > 0 && collected.length === 0) throw new Error(`amount suite failed entirely: ${failures.join(' | ')}`);
+      if (failures.length > 0) console.log(`WARNING: amount partial failure (${failures.join(' | ')}) — saving ${collected.length} sets`);
 
       // 상품 상세 보강 (리얼타임과 3시간 캐시 공유 — 중복 상품은 재방문 없음)
       const uniq = new Map();
