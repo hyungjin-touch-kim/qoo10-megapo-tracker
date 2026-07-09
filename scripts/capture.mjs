@@ -40,9 +40,25 @@ const COLS = [
   ['prev_rank', '이전순위'],
   ['change', '변동'],
   ['url', '상품URL'],
+  ['rank_kind', '랭킹종류'],
+  ['rank_category', '카테고리'],
 ];
 const KEYS = COLS.map((c) => c[0]);
 const LABELS = COLS.map((c) => c[1]);
+
+// 누적금액순 수집 대상 (매일 23시 실행에서 1회) — loadRankingData('Q', tab, group, age)
+// group 코드는 카테고리별 탭, age 코드는 연령대별 탭 onclick 인자에서 확인 (2026-07-09)
+const AMOUNT_SETS = [
+  { key: 'total', tab: 'C', group: 0, age: 0, label: '종합' },
+  { key: 'beauty', tab: 'C', group: 2, age: 0, label: '뷰티' },
+  { key: 'food', tab: 'C', group: 6, age: 0, label: '식품' },
+  { key: 'age0', tab: 'A', group: 0, age: 0, label: '전연령' },
+  { key: 'age10', tab: 'A', group: 0, age: 10, label: '10대' },
+  { key: 'age20', tab: 'A', group: 0, age: 20, label: '20대' },
+  { key: 'age30', tab: 'A', group: 0, age: 30, label: '30대' },
+  { key: 'age40', tab: 'A', group: 0, age: 40, label: '40대' },
+  { key: 'age50', tab: 'A', group: 0, age: 50, label: '50대' },
+];
 
 const mode = process.argv[2] || 'ranking';
 
@@ -237,6 +253,8 @@ try {
         prev_rank: prev,
         change: chg,
         url: GOODS_URL(it.goodscode),
+        rank_kind: '리얼타임',
+        rank_category: '',
       };
     });
 
@@ -250,7 +268,9 @@ try {
 
     const ranks = {};
     for (const it of items) ranks[it.goodscode] = it.rank;
-    fs.writeFileSync(LASTRUN_PATH, JSON.stringify({ captured: `${t.date} ${t.hm}`, ranks }));
+    // amountRanks(금액순 세트별 전일 순위)는 23시 실행이 아닌 시간에도 보존해야 함
+    const carryAmount = lastRun && lastRun.amountRanks ? { amountRanks: lastRun.amountRanks } : {};
+    fs.writeFileSync(LASTRUN_PATH, JSON.stringify({ captured: `${t.date} ${t.hm}`, ranks, ...carryAmount }));
 
     // ranking page screenshot: hourly when watch items present, plus daily at the 23:45 JST run
     const dailyShot = parseInt(t.hm.slice(0, 2), 10) === 23;
@@ -272,6 +292,138 @@ try {
         quality: 75,
       });
       console.log(`ranking screenshot saved (daily=${dailyShot}, watch=${watchHits.join(',') || '-'})`);
+    }
+
+    // 누적금액순 랭킹: 매일 23시 실행에서 카테고리 3종 + 연령대 6종 수집·스크린샷 (스펙 2026-07-09)
+    if (dailyShot) {
+      ensureDir('data/screenshots');
+      const collected = [];
+      for (const set of AMOUNT_SETS) {
+        await page.evaluate((s) => loadRankingData('Q', s.tab, s.group, s.age), set);
+        await page.waitForFunction(
+          (s) => window.type === 'Q' && window.tab === s.tab && Number(window.groupCode) === s.group && Number(window.age) === s.age,
+          set,
+          { timeout: 30000 }
+        );
+        await page.waitForTimeout(1000);
+
+        const listItems = await page.$$eval('ul.megasale_rank_list > li', (lis) =>
+          lis
+            .map((li) => {
+              const a = li.querySelector('a');
+              const rankEl = li.querySelector('.rank_num');
+              const titleEl = li.querySelector('.title');
+              const priceEl = li.querySelector('.price');
+              if (!a || !rankEl) return null;
+              const m = (a.getAttribute('href') || '').match(/goodscode=(\d+)/);
+              return {
+                rank: parseInt(rankEl.textContent.trim(), 10),
+                goodscode: m ? m[1] : '',
+                title: titleEl ? (titleEl.getAttribute('title') || titleEl.textContent).trim() : '',
+                list_price_yen: priceEl ? priceEl.textContent.replace(/[^\d]/g, '') : '',
+              };
+            })
+            .filter(Boolean)
+        );
+        // 1위는 리스트 밖 히어로 블록(wrap_rank1st) — 데이터는 전역 loadJsonData.firstItem에서 취득
+        const first = await page.evaluate(() => {
+          const g = window.loadJsonData && window.loadJsonData.firstItem && window.loadJsonData.firstItem.goods;
+          if (!g || !g.GD_NO) return null;
+          const promo = (g.PROMOTION_INFO && g.PROMOTION_INFO[0]) || null;
+          const price = promo && promo.PROMOTION_PRICE ? promo.PROMOTION_PRICE : g.FINAL_PRICE;
+          return { rank: 1, goodscode: String(g.GD_NO), title: (g.GD_NM || '').trim(), list_price_yen: price ? String(price) : '' };
+        });
+        const setItems = first ? [first, ...listItems] : listItems;
+        if (setItems.length < 50) throw new Error(`amount ${set.key}: only ${setItems.length} items parsed`);
+
+        fs.writeFileSync(`data/html/ranking_amount_${set.key}_${t.file}.html.gz`, zlib.gzipSync(Buffer.from(await page.content(), 'utf8')));
+        await page.evaluate(async () => {
+          for (let y = 0; y < document.body.scrollHeight; y += 1000) {
+            window.scrollTo(0, y);
+            await new Promise((r) => setTimeout(r, 120));
+          }
+          window.scrollTo(0, 0);
+        });
+        await page.waitForTimeout(1500); // 지연로딩 이미지 마무리 대기
+        try {
+          const area = await page.$('#special_wrap_202602');
+          if (!area) throw new Error('rank area not found');
+          await area.screenshot({ path: `data/screenshots/ranking_amount_${set.key}_${t.date}.jpg`, type: 'jpeg', quality: 75 });
+        } catch (e) {
+          console.log(`amount ${set.key}: element shot failed (${e.message}) -> fullPage`);
+          await page.screenshot({ path: `data/screenshots/ranking_amount_${set.key}_${t.date}.jpg`, fullPage: true, type: 'jpeg', quality: 75 });
+        }
+        console.log(`amount ${set.key}: ${setItems.length} items, top3 ${setItems.slice(0, 3).map((x) => x.goodscode).join('/')}`);
+        collected.push({ set, items: setItems });
+      }
+
+      // 상품 상세 보강 (리얼타임과 3시간 캐시 공유 — 중복 상품은 재방문 없음)
+      const uniq = new Map();
+      for (const c of collected) for (const it of c.items) uniq.set(it.goodscode, it);
+      const staleAmount = [...uniq.values()].filter((it) => {
+        const hit = cache[it.goodscode];
+        return !hit || !hit.enriched_at_ms || Date.now() - hit.enriched_at_ms > ENRICH_TTL_HOURS * 3600 * 1000;
+      });
+      console.log(`amount enrich: ${staleAmount.length}/${uniq.size} product pages`);
+      for (const it of staleAmount) {
+        try {
+          await page.goto(GOODS_URL(it.goodscode), { waitUntil: 'domcontentloaded', timeout: 45000 });
+          await page.waitForTimeout(500);
+          cache[it.goodscode] = { ...parseGoodsPage(await page.content()), enriched_at_ms: Date.now() };
+        } catch (e) {
+          console.log(`amount enrich failed for ${it.goodscode}: ${e.message}`);
+        }
+      }
+      fs.writeFileSync(CACHE_PATH, JSON.stringify(cache));
+
+      const prevAmount = (lastRun && lastRun.amountRanks) || {};
+      const amountRanks = {};
+      const amountRows = [];
+      for (const c of collected) {
+        const prevSet = prevAmount[c.set.key] || null;
+        amountRanks[c.set.key] = {};
+        for (const it of c.items) {
+          amountRanks[c.set.key][it.goodscode] = it.rank;
+          const info = cache[it.goodscode] || empty;
+          let prev = '';
+          let chg = '-';
+          if (prevSet) {
+            if (it.goodscode in prevSet) {
+              prev = prevSet[it.goodscode];
+              const d = prev - it.rank;
+              chg = d > 0 ? `UP ${d}` : d < 0 ? `DOWN ${-d}` : 'SAME';
+            } else chg = 'NEW';
+          }
+          const hay = `${info.brand} ${info.shop_name}`.toLowerCase();
+          const watch = watchCodes.has(it.goodscode) || watchNames.some((n) => hay.includes(n)) ? 'Y' : '';
+          amountRows.push({
+            captured_date: t.date,
+            captured_time: t.hm,
+            rank: it.rank,
+            goodscode: it.goodscode,
+            title: it.title,
+            list_price_yen: it.list_price_yen,
+            shop_id: info.shop_id,
+            shop_name: info.shop_name,
+            brand: info.brand,
+            ref_price_yen: info.ref_price_yen,
+            sell_price_yen: info.sell_price_yen,
+            timesale_price_yen: info.timesale_price_yen,
+            timesale_hours: info.timesale_hours,
+            megapo_coupon_pct: info.megapo_coupon_pct,
+            megapoint: info.megapoint,
+            watch,
+            prev_rank: prev,
+            change: chg,
+            url: GOODS_URL(it.goodscode),
+            rank_kind: '금액순',
+            rank_category: c.set.label,
+          });
+        }
+      }
+      fs.appendFileSync(CUM_PATH, amountRows.map((r) => KEYS.map((k) => csvField(r[k])).join(',')).join('\r\n') + '\r\n');
+      fs.writeFileSync(LASTRUN_PATH, JSON.stringify({ captured: `${t.date} ${t.hm}`, ranks, amountRanks }));
+      console.log(`amount rankings saved: ${amountRows.length} rows across ${collected.length} datasets`);
     }
 
     console.log(
