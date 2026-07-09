@@ -188,6 +188,11 @@ try {
     let fetched = 0;
     let failed = 0;
     for (const it of stale) {
+      // 자정을 넘기면 이벤트 종료/익일 세팅 값이 긁힘 → 오염 방지 위해 중단 (빈칸이 잘못된 값보다 낫다)
+      if (jstParts().date !== t.date) {
+        console.log(`enrich cutoff: date rolled past ${t.date} — stopping remaining enrichment`);
+        break;
+      }
       try {
         await page.goto(GOODS_URL(it.goodscode), { waitUntil: 'domcontentloaded', timeout: 45000 });
         await page.waitForTimeout(500);
@@ -376,6 +381,11 @@ try {
       });
       console.log(`amount enrich: ${staleAmount.length}/${uniq.size} product pages`);
       for (const it of staleAmount) {
+        // 자정 컷오프: 저장일과 다른 날짜의 부가필드 값은 저장하지 않음 (오염 방지)
+        if (jstParts().date !== t.date) {
+          console.log(`amount enrich cutoff: date rolled past ${t.date} — stopping remaining enrichment`);
+          break;
+        }
         try {
           await page.goto(GOODS_URL(it.goodscode), { waitUntil: 'domcontentloaded', timeout: 45000 });
           await page.waitForTimeout(500);
