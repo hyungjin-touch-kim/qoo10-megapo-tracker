@@ -11,6 +11,10 @@ on:
         description: 'ranking or screenshot'
         required: false
         default: 'ranking'
+      force:
+        description: 'true = bypass event period check'
+        required: false
+        default: 'false'
 
 concurrency:
   group: capture
@@ -18,7 +22,6 @@ concurrency:
 
 permissions:
   contents: write
-  actions: write
 
 jobs:
   capture:
@@ -36,31 +39,29 @@ jobs:
           END=$(echo "$RANGE" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}$' || true)
           echo "today=$TODAY start=$START end=$END"
           RUN=true
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "manual run: period check bypassed"
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            echo "forced run: period check bypassed"
           elif [ -n "$END" ] && [ "$TODAY" \> "$END" ]; then
             RUN=false
-            echo "event ended ($END) -> disabling workflow"
-            gh api -X PUT "repos/${{ github.repository }}/actions/workflows/capture.yml/disable"
+            echo "event ended ($END) -> skip (no disable; external trigger may call year-round)"
           elif [ -n "$START" ] && [ "$TODAY" \< "$START" ]; then
             RUN=false
             echo "event not started yet ($START) -> skip"
           fi
-          # backup tick (:15): skip when the primary :45 tick already captured within 75 min
-          if [ "$RUN" = "true" ] && [ "${{ github.event.schedule }}" = "15 * * * *" ] && [ -f data/last_run.json ]; then
+          # cron ranking ticks are backup to the external :46 dispatch: skip if captured within 40 min
+          # (daily screenshot cron '30 0 * * *' is exempt — it must run regardless of ranking captures)
+          if [ "$RUN" = "true" ] && [ "${{ github.event_name }}" = "schedule" ] && [ "${{ github.event.schedule }}" != "30 0 * * *" ] && [ -f data/last_run.json ]; then
             LAST=$(jq -r '.captured // empty' data/last_run.json)
             if [ -n "$LAST" ]; then
               DIFF=$(( $(date +%s) - $(TZ=Asia/Tokyo date -d "$LAST" +%s) ))
               echo "last capture: $LAST JST (${DIFF}s ago)"
-              if [ "$DIFF" -lt 4500 ]; then
+              if [ "$DIFF" -lt 2400 ]; then
                 RUN=false
-                echo "recent capture exists -> backup tick not needed"
+                echo "recent capture exists -> cron backup not needed"
               fi
             fi
           fi
           echo "run=$RUN" >> "$GITHUB_OUTPUT"
-        env:
-          GH_TOKEN: ${{ github.token }}
 
       - uses: actions/setup-node@v4
         if: steps.period.outputs.run == 'true'
