@@ -116,7 +116,63 @@ const page = await browser.newPage({
 try {
   const t = jstParts();
 
-  if (mode === 'screenshot') {
+  if (mode === 'prewarm') {
+    // 상품 상세 캐시 예열 전용 (매일 23:02 트리거) — 23:46 본 수집의 보강이 자정 전에 끝나도록
+    // 리얼타임+금액순 9세트의 상품코드를 훑어 캐시만 갱신. CSV/스크린샷 저장 없음.
+    await page.goto(RANKING_URL, { waitUntil: 'domcontentloaded', timeout: 90000 });
+    await page.waitForSelector('ul.megasale_rank_list li a span.rank_num', { timeout: 60000 });
+    const codes = new Set();
+    const collectCodes = async () => {
+      const cs = await page.$$eval('ul.megasale_rank_list li a', (as) =>
+        as.map((a) => (((a.getAttribute('href') || '').match(/goodscode=(\d+)/) || [])[1])).filter(Boolean)
+      );
+      for (const c of cs) codes.add(c);
+      const first = await page.evaluate(() => {
+        const g = window.loadJsonData && window.loadJsonData.firstItem && window.loadJsonData.firstItem.goods;
+        return g && g.GD_NO ? String(g.GD_NO) : null;
+      });
+      if (first) codes.add(first);
+    };
+    await collectCodes(); // 리얼타임
+    for (const set of AMOUNT_SETS) {
+      try {
+        await page.evaluate((s) => loadRankingData('Q', s.tab, s.group, s.age), set);
+        await page.waitForFunction(
+          (s) => window.type === 'Q' && window.tab === s.tab && Number(window.groupCode) === s.group && Number(window.age) === s.age,
+          set,
+          { timeout: 30000 }
+        );
+        await page.waitForTimeout(800);
+        await collectCodes();
+      } catch (e) {
+        console.log(`prewarm ${set.key} skipped: ${e.message}`);
+      }
+    }
+    const cache = readJson(CACHE_PATH, {});
+    const stale = [...codes].filter((code) => {
+      const hit = cache[code];
+      return !hit || !hit.enriched_at_ms || Date.now() - hit.enriched_at_ms > ENRICH_TTL_HOURS * 3600 * 1000;
+    });
+    console.log(`prewarm: ${codes.size} codes, enriching ${stale.length}`);
+    let warmed = 0;
+    for (const code of stale) {
+      if (jstParts().date !== t.date) {
+        console.log(`prewarm cutoff: date rolled past ${t.date}`);
+        break;
+      }
+      try {
+        await page.goto(GOODS_URL(code), { waitUntil: 'domcontentloaded', timeout: 45000 });
+        await page.waitForTimeout(500);
+        cache[code] = { ...parseGoodsPage(await page.content()), enriched_at_ms: Date.now() };
+        warmed++;
+      } catch (e) {
+        console.log(`prewarm enrich failed for ${code}: ${e.message}`);
+      }
+    }
+    ensureDir('data');
+    fs.writeFileSync(CACHE_PATH, JSON.stringify(cache));
+    console.log(`prewarm done: ${warmed}/${stale.length} enriched`);
+  } else if (mode === 'screenshot') {
     await page.goto(EVENT_URL, { waitUntil: 'domcontentloaded', timeout: 90000 });
     await page.evaluate(async () => {
       for (let y = 0; y < document.body.scrollHeight; y += 1000) {
