@@ -50,7 +50,12 @@ const LABELS = COLS.map((c) => c[1]);
 // group 코드는 카테고리별 탭, age 코드는 연령대별 탭 onclick 인자에서 확인 (2026-07-09)
 // !! 타입 코드 함정: 'Q'=累積件数順(건수순), 'T'=累積金額順(금액순) — 클래스명(btn_amount=Q,
 // btn_order=T)이 표시 라벨과 반대. 2026-07-10 탭 라벨 이미지로 검증 (7/9 수집분은 건수순이었음)
-const AMOUNT_TYPE = 'T';
+// 수집 스위트: 금액순(T) = CSV + 스크린샷(카테고리별 매일, 연령대별은 마지막날 1회) / 건수순(Q) = CSV만
+const RANK_SUITES = [
+  { key: 'amount', kind: '금액순', type: 'T' },
+  { key: 'count', kind: '건수순', type: 'Q' },
+];
+const EVENT_END_DATE = (cfgText.match(/\d{4}-\d{2}-\d{2}\s*~\s*(\d{4}-\d{2}-\d{2})/) || [])[1] || '';
 const AMOUNT_SETS = [
   { key: 'total', tab: 'C', group: 0, age: 0, label: '종합' },
   { key: 'beauty', tab: 'C', group: 2, age: 0, label: '뷰티' },
@@ -137,18 +142,20 @@ try {
       if (first) codes.add(first);
     };
     await collectCodes(); // 리얼타임
-    for (const set of AMOUNT_SETS) {
-      try {
-        await page.evaluate((s) => loadRankingData(s.type, s.tab, s.group, s.age), { ...set, type: AMOUNT_TYPE });
-        await page.waitForFunction(
-          (s) => window.type === s.type && window.tab === s.tab && Number(window.groupCode) === s.group && Number(window.age) === s.age,
-          { ...set, type: AMOUNT_TYPE },
-          { timeout: 30000 }
-        );
-        await page.waitForTimeout(800);
-        await collectCodes();
-      } catch (e) {
-        console.log(`prewarm ${set.key} skipped: ${e.message}`);
+    for (const suite of RANK_SUITES) {
+      for (const set of AMOUNT_SETS) {
+        try {
+          await page.evaluate((s) => loadRankingData(s.type, s.tab, s.group, s.age), { ...set, type: suite.type });
+          await page.waitForFunction(
+            (s) => window.type === s.type && window.tab === s.tab && Number(window.groupCode) === s.group && Number(window.age) === s.age,
+            { ...set, type: suite.type },
+            { timeout: 30000 }
+          );
+          await page.waitForTimeout(800);
+          await collectCodes();
+        } catch (e) {
+          console.log(`prewarm ${suite.key} ${set.key} skipped: ${e.message}`);
+        }
       }
     }
     const cache = readJson(CACHE_PATH, {});
@@ -358,18 +365,20 @@ try {
       console.log(`ranking screenshot saved (daily=${dailyShot}, watch=${watchHits.join(',') || '-'})`);
     }
 
-    // 누적금액순 랭킹: 매일 23시 실행에서 카테고리 3종 + 연령대 6종 수집·스크린샷 (스펙 2026-07-09)
+    // 누적 랭킹(금액순 T + 건수순 Q): 매일 23시 실행에서 각각 카테고리 3종 + 연령대 6종 수집 (스펙 2026-07-10)
     if (dailyShot) {
       ensureDir('data/screenshots');
+      const isLastDay = EVENT_END_DATE && t.date === EVENT_END_DATE;
       const collected = [];
       const failures = [];
       // 마지막 날 자정 직후 페이지가 닫혀도 그때까지 수집한 세트는 저장되도록 세트별 실패를 허용
+      suiteLoop: for (const suite of RANK_SUITES) {
       for (const set of AMOUNT_SETS) {
         try {
-        await page.evaluate((s) => loadRankingData(s.type, s.tab, s.group, s.age), { ...set, type: AMOUNT_TYPE });
+        await page.evaluate((s) => loadRankingData(s.type, s.tab, s.group, s.age), { ...set, type: suite.type });
         await page.waitForFunction(
           (s) => window.type === s.type && window.tab === s.tab && Number(window.groupCode) === s.group && Number(window.age) === s.age,
-          { ...set, type: AMOUNT_TYPE },
+          { ...set, type: suite.type },
           { timeout: 30000 }
         );
         await page.waitForTimeout(1000);
@@ -401,35 +410,39 @@ try {
           return { rank: 1, goodscode: String(g.GD_NO), title: (g.GD_NM || '').trim(), list_price_yen: price ? String(price) : '' };
         });
         const setItems = first ? [first, ...listItems] : listItems;
-        if (setItems.length < 50) throw new Error(`amount ${set.key}: only ${setItems.length} items parsed`);
+        if (setItems.length < 50) throw new Error(`${suite.key} ${set.key}: only ${setItems.length} items parsed`);
 
-        fs.writeFileSync(`data/html/ranking_amount_${set.key}_${t.file}.html.gz`, zlib.gzipSync(Buffer.from(await page.content(), 'utf8')));
-        await page.evaluate(async () => {
-          for (let y = 0; y < document.body.scrollHeight; y += 1000) {
-            window.scrollTo(0, y);
-            await new Promise((r) => setTimeout(r, 120));
+        fs.writeFileSync(`data/html/ranking_${suite.key}_${set.key}_${t.file}.html.gz`, zlib.gzipSync(Buffer.from(await page.content(), 'utf8')));
+        // 스크린샷: 금액순 카테고리별(종합·뷰티·식품)은 매일, 금액순 연령대별은 마지막날 1회, 건수순은 없음
+        if (suite.key === 'amount' && (set.tab === 'C' || isLastDay)) {
+          await page.evaluate(async () => {
+            for (let y = 0; y < document.body.scrollHeight; y += 1000) {
+              window.scrollTo(0, y);
+              await new Promise((r) => setTimeout(r, 120));
+            }
+            window.scrollTo(0, 0);
+          });
+          await page.waitForTimeout(1500); // 지연로딩 이미지 마무리 대기
+          try {
+            const area = await page.$('#special_wrap_202602');
+            if (!area) throw new Error('rank area not found');
+            await area.screenshot({ path: `data/screenshots/ranking_amount_${set.key}_${t.date}.jpg`, type: 'jpeg', quality: 75 });
+          } catch (e) {
+            console.log(`amount ${set.key}: element shot failed (${e.message}) -> fullPage`);
+            await page.screenshot({ path: `data/screenshots/ranking_amount_${set.key}_${t.date}.jpg`, fullPage: true, type: 'jpeg', quality: 75 });
           }
-          window.scrollTo(0, 0);
-        });
-        await page.waitForTimeout(1500); // 지연로딩 이미지 마무리 대기
-        try {
-          const area = await page.$('#special_wrap_202602');
-          if (!area) throw new Error('rank area not found');
-          await area.screenshot({ path: `data/screenshots/ranking_amount_${set.key}_${t.date}.jpg`, type: 'jpeg', quality: 75 });
-        } catch (e) {
-          console.log(`amount ${set.key}: element shot failed (${e.message}) -> fullPage`);
-          await page.screenshot({ path: `data/screenshots/ranking_amount_${set.key}_${t.date}.jpg`, fullPage: true, type: 'jpeg', quality: 75 });
         }
-        console.log(`amount ${set.key}: ${setItems.length} items, top3 ${setItems.slice(0, 3).map((x) => x.goodscode).join('/')}`);
-        collected.push({ set, items: setItems });
+        console.log(`${suite.key} ${set.key}: ${setItems.length} items, top3 ${setItems.slice(0, 3).map((x) => x.goodscode).join('/')}`);
+        collected.push({ suite, set, items: setItems });
         } catch (e) {
-          failures.push(`${set.key}: ${e.message}`);
-          console.log(`amount ${set.key} FAILED: ${e.message} -> stopping remaining sets`);
-          break; // 페이지 종료(자정) 가능성 — 이후 세트도 실패할 것이므로 중단
+          failures.push(`${suite.key}/${set.key}: ${e.message}`);
+          console.log(`${suite.key} ${set.key} FAILED: ${e.message} -> stopping remaining sets`);
+          break suiteLoop; // 페이지 종료(자정) 가능성 — 이후 세트도 실패할 것이므로 전체 중단
         }
       }
-      if (failures.length > 0 && collected.length === 0) throw new Error(`amount suite failed entirely: ${failures.join(' | ')}`);
-      if (failures.length > 0) console.log(`WARNING: amount partial failure (${failures.join(' | ')}) — saving ${collected.length} sets`);
+      }
+      if (failures.length > 0 && collected.length === 0) throw new Error(`rank suites failed entirely: ${failures.join(' | ')}`);
+      if (failures.length > 0) console.log(`WARNING: partial failure (${failures.join(' | ')}) — saving ${collected.length} sets`);
 
       // 상품 상세 보강 (리얼타임과 3시간 캐시 공유 — 중복 상품은 재방문 없음)
       const uniq = new Map();
@@ -459,10 +472,11 @@ try {
       const amountRanks = {};
       const amountRows = [];
       for (const c of collected) {
-        const prevSet = prevAmount[c.set.key] || null;
-        amountRanks[c.set.key] = {};
+        const dsKey = `${c.suite.key}_${c.set.key}`;
+        const prevSet = prevAmount[dsKey] || null;
+        amountRanks[dsKey] = {};
         for (const it of c.items) {
-          amountRanks[c.set.key][it.goodscode] = it.rank;
+          amountRanks[dsKey][it.goodscode] = it.rank;
           const info = cache[it.goodscode] || empty;
           let prev = '';
           let chg = '-';
@@ -495,14 +509,14 @@ try {
             prev_rank: prev,
             change: chg,
             url: GOODS_URL(it.goodscode),
-            rank_kind: '금액순',
+            rank_kind: c.suite.kind,
             rank_category: c.set.label,
           });
         }
       }
       fs.appendFileSync(CUM_PATH, amountRows.map((r) => KEYS.map((k) => csvField(r[k])).join(',')).join('\r\n') + '\r\n');
       fs.writeFileSync(LASTRUN_PATH, JSON.stringify({ captured: `${t.date} ${t.hm}`, ranks, amountRanks }));
-      console.log(`amount rankings saved: ${amountRows.length} rows across ${collected.length} datasets`);
+      console.log(`rank suites saved: ${amountRows.length} rows across ${collected.length} datasets`);
     }
 
     console.log(
