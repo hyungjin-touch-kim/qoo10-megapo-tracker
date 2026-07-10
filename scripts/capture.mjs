@@ -46,8 +46,11 @@ const COLS = [
 const KEYS = COLS.map((c) => c[0]);
 const LABELS = COLS.map((c) => c[1]);
 
-// 누적금액순 수집 대상 (매일 23시 실행에서 1회) — loadRankingData('Q', tab, group, age)
+// 누적금액순 수집 대상 (매일 23시 실행에서 1회) — loadRankingData(type, tab, group, age)
 // group 코드는 카테고리별 탭, age 코드는 연령대별 탭 onclick 인자에서 확인 (2026-07-09)
+// !! 타입 코드 함정: 'Q'=累積件数順(건수순), 'T'=累積金額順(금액순) — 클래스명(btn_amount=Q,
+// btn_order=T)이 표시 라벨과 반대. 2026-07-10 탭 라벨 이미지로 검증 (7/9 수집분은 건수순이었음)
+const AMOUNT_TYPE = 'T';
 const AMOUNT_SETS = [
   { key: 'total', tab: 'C', group: 0, age: 0, label: '종합' },
   { key: 'beauty', tab: 'C', group: 2, age: 0, label: '뷰티' },
@@ -136,10 +139,10 @@ try {
     await collectCodes(); // 리얼타임
     for (const set of AMOUNT_SETS) {
       try {
-        await page.evaluate((s) => loadRankingData('Q', s.tab, s.group, s.age), set);
+        await page.evaluate((s) => loadRankingData(s.type, s.tab, s.group, s.age), { ...set, type: AMOUNT_TYPE });
         await page.waitForFunction(
-          (s) => window.type === 'Q' && window.tab === s.tab && Number(window.groupCode) === s.group && Number(window.age) === s.age,
-          set,
+          (s) => window.type === s.type && window.tab === s.tab && Number(window.groupCode) === s.group && Number(window.age) === s.age,
+          { ...set, type: AMOUNT_TYPE },
           { timeout: 30000 }
         );
         await page.waitForTimeout(800);
@@ -363,10 +366,10 @@ try {
       // 마지막 날 자정 직후 페이지가 닫혀도 그때까지 수집한 세트는 저장되도록 세트별 실패를 허용
       for (const set of AMOUNT_SETS) {
         try {
-        await page.evaluate((s) => loadRankingData('Q', s.tab, s.group, s.age), set);
+        await page.evaluate((s) => loadRankingData(s.type, s.tab, s.group, s.age), { ...set, type: AMOUNT_TYPE });
         await page.waitForFunction(
-          (s) => window.type === 'Q' && window.tab === s.tab && Number(window.groupCode) === s.group && Number(window.age) === s.age,
-          set,
+          (s) => window.type === s.type && window.tab === s.tab && Number(window.groupCode) === s.group && Number(window.age) === s.age,
+          { ...set, type: AMOUNT_TYPE },
           { timeout: 30000 }
         );
         await page.waitForTimeout(1000);

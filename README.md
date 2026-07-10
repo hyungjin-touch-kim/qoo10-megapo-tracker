@@ -26,6 +26,7 @@ Enable/Disable 조작은 불필요 — 기간 밖 호출(외부 트리거·cron)
 
 ## 참고
 
+- **랭킹 탭 type 코드: `D`=리얼타임, `Q`=누적건수순, `T`=누적금액순** — 클래스명(btn_amount=Q, btn_order=T)이 표시 라벨과 반대이니 코드로 의미를 단정하지 말 것 (2026-07-10 라벨 이미지로 검증. 2026-07-09 수집분은 건수순 → CSV `건수순` 재라벨, 파일명 `ranking_count_*`)
 - GitHub cron은 정시에서 수 분~수십 분 지연될 수 있음 (23:45 실행이 자정을 넘기면 그날 일일 랭킹 스크린샷은 생략됨)
 - **GitHub cron은 신뢰 불가** (2026-07-08~09 관측: tick ~75% 누락, 공백 2~4시간; 워크플로 push·enable 호출 직후엔 수 시간 정지). 그래서 주 수집은 cron-job.org 외부 트리거가 담당하고 GitHub cron은 백업 — cron-job.org의 PAT(fine-grained, 이 repo Actions write)는 만료 시 갱신 필요
 - 2026-07-08 public 전환 — Actions 실행시간 한도 없음. 이벤트 기간 관리는 event_config.txt가 자동 처리
