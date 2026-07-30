@@ -8,6 +8,6 @@
 # (3·6·9·11월 메가와리는 페이지 구조가 다를 수 있음 — 첫날 실행 결과 확인,
 #  실패(빨간 X) 시 파싱 수정 필요)
 
-period: 2026-07-01 ~ 2026-07-09
+period: 2026-08-01 ~ 2026-08-09
 ranking_url: https://www.qoo10.jp/gmkt.inc/Special/Special.aspx?sid=22
-event_url: https://www.qoo10.jp/gmkt.inc/Special/Special.aspx?sid=1422
+event_url: https://www.qoo10.jp/gmkt.inc/Special/Special.aspx?sid=4628
