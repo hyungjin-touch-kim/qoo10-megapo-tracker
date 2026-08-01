@@ -326,17 +326,35 @@ try {
     }
     // ===== 일일 수집 선행부 끝 =====
 
-    // watch list: numeric lines = goodscode, text lines = brand/shop name substring (case-insensitive)
-    const watchCodes = new Set();
-    const watchNames = [];
+    // watch list: [자사]/[계열] 섹션, 각 줄 "브랜드키: 토큰,토큰" (브랜드·점포명 부분일치, 대소문자 무시).
+    // 상품명은 매칭에 안 씀 — ヘラ(주걱) 등 일본어 일반명사와의 오탐 방지. 숫자 단독 줄 = 상품코드.
+    const WATCH = []; // { key, group('자사'|'계열'), tokens[], codes:Set }
     if (fs.existsSync(WATCH_PATH)) {
+      let group = '자사';
       for (const raw of fs.readFileSync(WATCH_PATH, 'utf8').split(/\r?\n/)) {
         const s = raw.trim();
         if (!s || s.startsWith('#')) continue;
-        if (/^\d+$/.test(s)) watchCodes.add(s);
-        else watchNames.push(s.toLowerCase());
+        const sec = s.match(/^\[(.+)\]$/);
+        if (sec) {
+          group = sec[1].trim() === '계열' ? '계열' : '자사';
+          continue;
+        }
+        if (/^\d+$/.test(s)) {
+          WATCH.push({ key: s, group, tokens: [], codes: new Set([s]) });
+          continue;
+        }
+        const m = s.match(/^([^:]+):(.+)$/);
+        if (m) WATCH.push({ key: m[1].trim(), group, tokens: m[2].split(',').map((x) => x.trim().toLowerCase()).filter(Boolean), codes: new Set() });
+        else WATCH.push({ key: s.toLowerCase(), group, tokens: [s.toLowerCase()], codes: new Set() });
       }
     }
+    const watchMatch = (goodscode, info) => {
+      const hay = `${info.brand} ${info.shop_name}`.toLowerCase();
+      for (const w of WATCH) {
+        if (w.codes.has(goodscode) || w.tokens.some((n) => hay.includes(n))) return w;
+      }
+      return null;
+    };
 
     // product enrichment with TTL cache
     ensureDir('data');
@@ -376,6 +394,7 @@ try {
     let upCnt = 0;
     let downCnt = 0;
     const watchHits = [];
+    const brandBest = {}; // 이번 실행에서 워치 브랜드별 최고 순위
 
     const empty = parseGoodsPage('');
     const rows = items.map((it) => {
@@ -398,9 +417,12 @@ try {
           newCnt++;
         }
       }
-      const hay = `${info.brand} ${info.shop_name}`.toLowerCase();
-      const watch = watchCodes.has(it.goodscode) || watchNames.some((n) => hay.includes(n)) ? 'Y' : '';
-      if (watch) watchHits.push(it.goodscode);
+      const w = watchMatch(it.goodscode, info);
+      const watch = w ? w.group : '';
+      if (w) {
+        watchHits.push(`${w.key}#${it.rank}`);
+        if (!brandBest[w.key] || it.rank < brandBest[w.key]) brandBest[w.key] = it.rank;
+      }
       return {
         captured_date: t.date,
         captured_time: t.hm,
@@ -436,12 +458,23 @@ try {
 
     const ranks = {};
     for (const it of items) ranks[it.goodscode] = it.rank;
-    // amountRanks(금액순 세트별 전일 순위)는 23시 실행이 아닌 시간에도 보존해야 함
+    // 워치 브랜드별 "오늘 최고 순위" 추적 — 갱신된 브랜드만 스크린샷 (하루 최고 시점 1장 정책)
+    const prevBest = lastRun && lastRun.watchBest && lastRun.watchBest.date === t.date ? lastRun.watchBest.best : {};
+    const improved = [];
+    const mergedBest = { ...prevBest };
+    for (const k of Object.keys(brandBest)) {
+      if (!mergedBest[k] || brandBest[k] < mergedBest[k]) {
+        mergedBest[k] = brandBest[k];
+        improved.push(k);
+      }
+    }
+    const watchBest = { date: t.date, best: mergedBest };
+    // amountRanks(누적 세트별 전일 순위)는 23:45 실행이 아닌 시간에도 보존해야 함
     const carryAmount = lastRun && lastRun.amountRanks ? { amountRanks: lastRun.amountRanks } : {};
-    fs.writeFileSync(LASTRUN_PATH, JSON.stringify({ captured: `${t.date} ${t.hm}`, ranks, ...carryAmount }));
+    fs.writeFileSync(LASTRUN_PATH, JSON.stringify({ captured: `${t.date} ${t.hm}`, ranks, watchBest, ...carryAmount }));
 
-    // watch 매칭 시간별 스크린샷 (23:45 일일 스크린샷은 선행부에서 이미 저장)
-    if (watchHits.length > 0 && !dailyShot) {
+    // 워치 브랜드 "오늘 최고 순위 갱신" 시점 스크린샷 — 브랜드당 같은 파일 덮어쓰기 → 하루 끝에 최고 시점 1장
+    if (improved.length > 0) {
       ensureDir('data/screenshots');
       await page.goto(RANKING_URL, { waitUntil: 'domcontentloaded', timeout: 90000 });
       await page.waitForSelector('ul.megasale_rank_list li', { timeout: 60000 });
@@ -452,13 +485,12 @@ try {
         }
         window.scrollTo(0, 0);
       });
-      await page.screenshot({
-        path: `data/screenshots/ranking_realtime_${t.file}.jpg`,
-        fullPage: true,
-        type: 'jpeg',
-        quality: 75,
-      });
-      console.log(`ranking screenshot saved (watch=${watchHits.join(',')})`);
+      await page.waitForTimeout(1500);
+      const tmpShot = 'data/screenshots/watch_tmp.jpg';
+      await page.screenshot({ path: tmpShot, fullPage: true, type: 'jpeg', quality: 75 });
+      for (const k of improved) fs.copyFileSync(tmpShot, `data/screenshots/watch_${k}_${t.date}.jpg`);
+      fs.unlinkSync(tmpShot);
+      console.log(`watch best-rank screenshot updated: ${improved.map((k) => `${k}=${mergedBest[k]}`).join(', ')}`);
     }
 
     // 누적 랭킹 상세 보강·CSV 저장 (세트 파싱·스크린샷은 위 선행부에서 자정 전에 완료)
@@ -507,8 +539,8 @@ try {
               chg = d > 0 ? `UP ${d}` : d < 0 ? `DOWN ${-d}` : 'SAME';
             } else chg = 'NEW';
           }
-          const hay = `${info.brand} ${info.shop_name}`.toLowerCase();
-          const watch = watchCodes.has(it.goodscode) || watchNames.some((n) => hay.includes(n)) ? 'Y' : '';
+          const w = watchMatch(it.goodscode, info);
+          const watch = w ? w.group : '';
           amountRows.push({
             captured_date: t.date,
             captured_time: t.hm,
