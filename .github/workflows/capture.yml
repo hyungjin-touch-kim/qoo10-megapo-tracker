@@ -116,6 +116,11 @@ jobs:
             echo "no changes"
           else
             git commit -m "capture(${{ steps.mode.outputs.mode }}): $(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M JST')"
-            git pull --rebase
+            if ! git pull --rebase; then
+              # product_cache.json race with an overlapping run (e.g. long prewarm):
+              # keep this run's copy and continue; any other conflict still fails loudly
+              git checkout --theirs data/product_cache.json && git add data/product_cache.json
+              GIT_EDITOR=true git rebase --continue || { git rebase --abort; exit 1; }
+            fi
             git push
           fi
