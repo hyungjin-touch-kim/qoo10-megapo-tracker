@@ -496,7 +496,7 @@ try {
         for (const f of fs.readdirSync(SHOT_DIR)) {
           if (f.startsWith(`watch_${k}_${t.date}`)) fs.unlinkSync(`${SHOT_DIR}/${f}`);
         }
-        fs.copyFileSync(tmpShot, `${SHOT_DIR}/watch_${k}_${t.date}_${mergedBest[k]}위.jpg`);
+        fs.copyFileSync(tmpShot, `${SHOT_DIR}/watch_${k}_${t.date}_${t.hm.slice(0, 2)}시_${mergedBest[k]}위.jpg`);
       }
       fs.unlinkSync(tmpShot);
       console.log(`watch best-rank screenshot updated: ${improved.map((k) => `${k}=${mergedBest[k]}`).join(', ')}`);
