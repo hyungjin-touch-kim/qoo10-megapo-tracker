@@ -398,6 +398,7 @@ try {
     let downCnt = 0;
     const watchHits = [];
     const brandBest = {}; // 이번 실행에서 워치 브랜드별 최고 순위
+    const brandBestName = {}; // 그 최고 순위 상품명 (스크린샷 파일명용)
 
     const empty = parseGoodsPage('');
     const rows = items.map((it) => {
@@ -424,7 +425,10 @@ try {
       const watch = w ? w.group : '';
       if (w) {
         watchHits.push(`${w.key}#${it.rank}`);
-        if (!brandBest[w.key] || it.rank < brandBest[w.key]) brandBest[w.key] = it.rank;
+        if (!brandBest[w.key] || it.rank < brandBest[w.key]) {
+          brandBest[w.key] = it.rank;
+          brandBestName[w.key] = it.title;
+        }
       }
       return {
         captured_date: t.date,
@@ -491,12 +495,14 @@ try {
       await page.waitForTimeout(1500);
       const tmpShot = `${SHOT_DIR}/watch_tmp.jpg`;
       await page.screenshot({ path: tmpShot, fullPage: true, type: 'jpeg', quality: 75 });
+      // 파일명: watch_브랜드_날짜_HH시_순위위_요약제품명.jpg — 같은 날짜의 이전 파일은 제거하고 최고 시점 1장만 유지
+      const shotName = (nm) => (nm || '').replace(/【[^】]*】|\[[^\]]*\]/g, '').replace(/[\\/:*?"<>|]/g, '').trim().slice(0, 10);
       for (const k of improved) {
-        // 파일명에 순위 포함 — 같은 날짜의 이전(더 낮은 순위) 파일은 제거하고 최고 순위 1장만 유지
         for (const f of fs.readdirSync(SHOT_DIR)) {
           if (f.startsWith(`watch_${k}_${t.date}`)) fs.unlinkSync(`${SHOT_DIR}/${f}`);
         }
-        fs.copyFileSync(tmpShot, `${SHOT_DIR}/watch_${k}_${t.date}_${t.hm.slice(0, 2)}시_${mergedBest[k]}위.jpg`);
+        const nm = shotName(brandBestName[k]);
+        fs.copyFileSync(tmpShot, `${SHOT_DIR}/watch_${k}_${t.date}_${t.hm.slice(0, 2)}시_${mergedBest[k]}위${nm ? '_' + nm : ''}.jpg`);
       }
       fs.unlinkSync(tmpShot);
       console.log(`watch best-rank screenshot updated: ${improved.map((k) => `${k}=${mergedBest[k]}`).join(', ')}`);
