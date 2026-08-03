@@ -12,6 +12,9 @@ const cfgVal = (key, def) => {
   return m ? m[1] : def;
 };
 const RANKING_URL = cfgVal('ranking_url', 'https://www.qoo10.jp/gmkt.inc/Special/Special.aspx?sid=22');
+// 스크린샷은 이벤트별 하위 폴더에 저장 (예: data/screenshots/2608 megapo/) — event_config의 event_name
+const EVENT_NAME = ((cfgText.match(/^event_name\s*:\s*(.+)$/m) || [])[1] || 'event').trim();
+const SHOT_DIR = `data/screenshots/${EVENT_NAME}`;
 const EVENT_URL = cfgVal('event_url', 'https://www.qoo10.jp/gmkt.inc/Special/Special.aspx?sid=1422');
 const GOODS_URL = (code) => `https://www.qoo10.jp/gmkt.inc/goods/goods.aspx?goodscode=${code}`;
 const ENRICH_TTL_HOURS = 3;
@@ -192,9 +195,9 @@ try {
       window.scrollTo(0, 0);
     });
     await page.waitForTimeout(3000);
-    ensureDir('data/screenshots');
+    ensureDir(SHOT_DIR);
     await page.screenshot({
-      path: `data/screenshots/megapo_main_${t.date}.jpg`,
+      path: `${SHOT_DIR}/megapo_main_${t.date}.jpg`,
       fullPage: true,
       type: 'jpeg',
       quality: 80,
@@ -236,7 +239,7 @@ try {
     const collected = [];
     const suiteFailures = [];
     if (dailyShot) {
-      ensureDir('data/screenshots');
+      ensureDir(SHOT_DIR);
       const isLastDay = EVENT_END_DATE && t.date === EVENT_END_DATE;
       // 일일 리얼타임 전체 스크린샷 (페이지는 이미 랭킹 페이지)
       await page.evaluate(async () => {
@@ -247,7 +250,7 @@ try {
         window.scrollTo(0, 0);
       });
       await page.waitForTimeout(1500);
-      await page.screenshot({ path: `data/screenshots/ranking_realtime_${t.file}.jpg`, fullPage: true, type: 'jpeg', quality: 75 });
+      await page.screenshot({ path: `${SHOT_DIR}/ranking_realtime_${t.file}.jpg`, fullPage: true, type: 'jpeg', quality: 75 });
       console.log('daily realtime screenshot saved');
 
       // 누적 랭킹(금액순 T + 건수순 Q) 각 9세트 파싱 — 마지막 날 자정 직후 페이지가 닫혀도
@@ -306,10 +309,10 @@ try {
           try {
             const area = await page.$('#special_wrap_202602');
             if (!area) throw new Error('rank area not found');
-            await area.screenshot({ path: `data/screenshots/ranking_amount_${set.key}_${t.date}.jpg`, type: 'jpeg', quality: 75 });
+            await area.screenshot({ path: `${SHOT_DIR}/ranking_amount_${set.key}_${t.date}.jpg`, type: 'jpeg', quality: 75 });
           } catch (e) {
             console.log(`amount ${set.key}: element shot failed (${e.message}) -> fullPage`);
-            await page.screenshot({ path: `data/screenshots/ranking_amount_${set.key}_${t.date}.jpg`, fullPage: true, type: 'jpeg', quality: 75 });
+            await page.screenshot({ path: `${SHOT_DIR}/ranking_amount_${set.key}_${t.date}.jpg`, fullPage: true, type: 'jpeg', quality: 75 });
           }
         }
         console.log(`${suite.key} ${set.key}: ${setItems.length} items, top3 ${setItems.slice(0, 3).map((x) => x.goodscode).join('/')}`);
@@ -475,7 +478,7 @@ try {
 
     // 워치 브랜드 "오늘 최고 순위 갱신" 시점 스크린샷 — 브랜드당 같은 파일 덮어쓰기 → 하루 끝에 최고 시점 1장
     if (improved.length > 0) {
-      ensureDir('data/screenshots');
+      ensureDir(SHOT_DIR);
       await page.goto(RANKING_URL, { waitUntil: 'domcontentloaded', timeout: 90000 });
       await page.waitForSelector('ul.megasale_rank_list li', { timeout: 60000 });
       await page.evaluate(async () => {
@@ -486,9 +489,15 @@ try {
         window.scrollTo(0, 0);
       });
       await page.waitForTimeout(1500);
-      const tmpShot = 'data/screenshots/watch_tmp.jpg';
+      const tmpShot = `${SHOT_DIR}/watch_tmp.jpg`;
       await page.screenshot({ path: tmpShot, fullPage: true, type: 'jpeg', quality: 75 });
-      for (const k of improved) fs.copyFileSync(tmpShot, `data/screenshots/watch_${k}_${t.date}.jpg`);
+      for (const k of improved) {
+        // 파일명에 순위 포함 — 같은 날짜의 이전(더 낮은 순위) 파일은 제거하고 최고 순위 1장만 유지
+        for (const f of fs.readdirSync(SHOT_DIR)) {
+          if (f.startsWith(`watch_${k}_${t.date}`)) fs.unlinkSync(`${SHOT_DIR}/${f}`);
+        }
+        fs.copyFileSync(tmpShot, `${SHOT_DIR}/watch_${k}_${t.date}_${mergedBest[k]}위.jpg`);
+      }
       fs.unlinkSync(tmpShot);
       console.log(`watch best-rank screenshot updated: ${improved.map((k) => `${k}=${mergedBest[k]}`).join(', ')}`);
     }
