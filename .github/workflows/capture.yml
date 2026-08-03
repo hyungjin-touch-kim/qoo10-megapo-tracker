@@ -33,20 +33,33 @@ jobs:
       - name: Check event period
         id: period
         run: |
-          TODAY=$(TZ=Asia/Tokyo date +%F)
-          RANGE=$(grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2} *~ *[0-9]{4}-[0-9]{2}-[0-9]{2}' event_config.txt | head -1 || true)
-          START=$(echo "$RANGE" | grep -oE '^[0-9]{4}-[0-9]{2}-[0-9]{2}' || true)
-          END=$(echo "$RANGE" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}$' || true)
-          echo "today=$TODAY start=$START end=$END"
+          NOW_TS=$(date +%s)
+          RANGE=$(grep -E '^period:' event_config.txt | head -1 | sed 's/^period:[[:space:]]*//' || true)
+          START=$(echo "$RANGE" | awk -F'~' '{print $1}' | xargs || true)
+          END=$(echo "$RANGE" | awk -F'~' '{print $2}' | xargs || true)
+          echo "now=$(TZ=Asia/Tokyo date '+%F %H:%M') JST start=$START end=$END"
           RUN=true
           if [ "${{ github.event.inputs.force }}" = "true" ]; then
             echo "forced run: period check bypassed"
-          elif [ -n "$END" ] && [ "$TODAY" \> "$END" ]; then
-            RUN=false
-            echo "event ended ($END) -> skip (no disable; external trigger may call year-round)"
-          elif [ -n "$START" ] && [ "$TODAY" \< "$START" ]; then
-            RUN=false
-            echo "event not started yet ($START) -> skip"
+          else
+            # start/end accept optional HH:MM (JST) — e.g. "2026-08-28 17:00 ~ 2026-09-09"
+            if [ -n "$START" ]; then
+              START_TS=$(TZ=Asia/Tokyo date -d "$START" +%s 2>/dev/null || true)
+              if [ -n "$START_TS" ] && [ "$NOW_TS" -lt "$START_TS" ]; then
+                RUN=false
+                echo "event not started yet ($START JST) -> skip"
+              fi
+            fi
+            if [ "$RUN" = "true" ] && [ -n "$END" ]; then
+              case "$END" in
+                *:*) END_TS=$(TZ=Asia/Tokyo date -d "$END" +%s 2>/dev/null || true) ;;
+                *)   END_TS=$(TZ=Asia/Tokyo date -d "$END 23:59:59" +%s 2>/dev/null || true) ;;
+              esac
+              if [ -n "$END_TS" ] && [ "$NOW_TS" -gt "$END_TS" ]; then
+                RUN=false
+                echo "event ended ($END JST) -> skip (no disable; external trigger may call year-round)"
+              fi
+            fi
           fi
           # cron ranking ticks are backup to the external :46 dispatch: skip if captured within 40 min
           # (daily screenshot cron '30 0 * * *' is exempt — it must run regardless of ranking captures)
