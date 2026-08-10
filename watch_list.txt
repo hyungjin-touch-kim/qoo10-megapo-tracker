@@ -1,7 +1,7 @@
 # 워치리스트 — [자사]/[계열] 섹션, 각 줄 "브랜드키: 토큰,토큰,..."
 # 토큰은 큐텐 표기로 브랜드명·점포명에 일치(대소문자 무시). ASCII 토큰 = 단어 경계 일치(Quadthera에 hera가 걸리는 오탐 방지, 2026-08-10), 일본어 토큰 = 부분일치.
 # 상품명은 매칭에 쓰지 않음(오탐 방지). 숫자 단독 줄 = 상품코드 직접 지정. 매칭은 "위에서부터 먼저 걸리는 항목" 우선.
-# 자사 = 우리 몰 운영 8브랜드(2026-08-10 사용자 재정의) / 계열 = 법인·타팀 관리 브랜드
+# 자사 = 우리 몰 운영 10브랜드(2026-08-01 정의, 2026-08-10 일리윤·비레디 계열 이동은 착오로 당일 복원) / 계열 = 법인·타팀 관리 브랜드
 # CSV '자사상품여부'에 섹션명(자사/계열) 기록 + 브랜드당 "하루 최고 순위 갱신 시점" 스크린샷 1장.
 
 # ── 우선 매칭: 점포명이 자사 토큰과 겹치는 계열 항목은 여기(위쪽)에 둘 것 ──
@@ -16,7 +16,9 @@ hanyul: ハンユル, hanyul
 mamonde: マモンド, mamonde
 sulwhasoo: ソルファス, 雪花秀, sulwhasoo
 primera: プリメラ, primera
+illiyoon: イリユン, illiyoon
 amorepacific: アモーレパシフィック, amorepacific
+beready: ビーレディ, be ready
 
 [계열]
 laneige: ラネージュ, laneige
@@ -27,6 +29,4 @@ espoir: エスポア, espoir
 osulloc: オスロック, osulloc
 innisfree: イニスフリー, innisfree
 misenscene: ミジャンセン, mise en scene
-illiyoon: イリユン, illiyoon
-beready: ビーレディ, be ready
 # 추가 계열 브랜드는 여기에 같은 형식으로
