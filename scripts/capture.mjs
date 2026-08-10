@@ -351,10 +351,14 @@ try {
         else WATCH.push({ key: s.toLowerCase(), group, tokens: [s.toLowerCase()], codes: new Set() });
       }
     }
+    // ASCII 토큰은 단어 경계 일치 — 브랜드명 내부 부분 문자열 오탐 방지(예: Quadthera에 hera, 2026-08-10). 일본어 토큰은 부분일치 유지.
+    const tokenHit = (hay, n) => /^[\x20-\x7e]+$/.test(n)
+      ? new RegExp(`(^|[^a-z0-9])${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`).test(hay)
+      : hay.includes(n);
     const watchMatch = (goodscode, info) => {
       const hay = `${info.brand} ${info.shop_name}`.toLowerCase();
       for (const w of WATCH) {
-        if (w.codes.has(goodscode) || w.tokens.some((n) => hay.includes(n))) return w;
+        if (w.codes.has(goodscode) || w.tokens.some((n) => tokenHit(hay, n))) return w;
       }
       return null;
     };
