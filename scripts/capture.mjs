@@ -237,12 +237,12 @@ try {
     await page.waitForTimeout(3000);
     ensureDir(SHOT_DIR);
     await page.screenshot({
-      path: `${SHOT_DIR}/megapo_main_${t.date}.jpg`,
+      path: `${SHOT_DIR}/megawari_main_${t.date}.jpg`,
       fullPage: true,
       type: 'jpeg',
       quality: 80,
     });
-    console.log(`screenshot saved: megapo_main_${t.date}.jpg`);
+    console.log(`screenshot saved: megawari_main_${t.date}.jpg`);
   } else if (mode === 'debug') {
     // 일회성 진단: 메가와리 랭킹 페이지의 실제 마크업 확인 (2026-08-28 sid=22 종료 판명 후)
     for (const [label, url] of [['ranking', RANKING_URL], ['event', EVENT_URL]]) {
@@ -274,9 +274,9 @@ try {
           const hero = document.querySelector('.rank_1st');
           return {
             listCount: document.querySelectorAll('.list_v2_rank').length,
-            item1: cont ? cont.outerHTML.replace(/\s+/g, ' ').slice(0, 2200) : null,
-            item2: (document.querySelectorAll('.list_v2_rank')[1] || {}).outerHTML
-              ? document.querySelectorAll('.list_v2_rank')[1].outerHTML.replace(/\s+/g, ' ').slice(0, 1200) : null,
+            parentTag: cont && cont.parentElement ? cont.parentElement.tagName + '.' + cont.parentElement.className : null,
+            parentHtml: cont && cont.parentElement
+              ? cont.parentElement.outerHTML.replace(/\s+/g, ' ').slice(0, 2600) : null,
           };
         });
         console.log('[debug:sample] ' + JSON.stringify(sample));
