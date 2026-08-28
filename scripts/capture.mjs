@@ -413,13 +413,31 @@ try {
             })
             .filter(Boolean)
         );
-        // 1위는 리스트 밖 히어로 블록(wrap_rank1st) — 데이터는 전역 loadJsonData.firstItem에서 취득
+        // 누적 탭의 1위는 리스트(.list_v2_item) 밖 왕관 히어로 카드(.wrap_rank1st) — 세트 전환 시 함께 갱신된다.
+        // firstItem 구조는 이벤트에 따라 다르다: 메가포=중첩(goods.GD_NO), 메가와리=평면(gdNm/connectUrl/finalPriceText,
+        // 2026-08-28 확인). 둘 다 실패하면 히어로 DOM에서 직접 읽는다.
         const first = await page.evaluate(() => {
-          const g = window.loadJsonData && window.loadJsonData.firstItem && window.loadJsonData.firstItem.goods;
-          if (!g || !g.GD_NO) return null;
-          const promo = (g.PROMOTION_INFO && g.PROMOTION_INFO[0]) || null;
-          const price = promo && promo.PROMOTION_PRICE ? promo.PROMOTION_PRICE : g.FINAL_PRICE;
-          return { rank: 1, goodscode: String(g.GD_NO), title: (g.GD_NM || '').trim(), list_price_yen: price ? String(price) : '' };
+          const fi = window.loadJsonData && window.loadJsonData.firstItem;
+          const g = fi && fi.goods;
+          if (g && g.GD_NO) {
+            const promo = (g.PROMOTION_INFO && g.PROMOTION_INFO[0]) || null;
+            const price = promo && promo.PROMOTION_PRICE ? promo.PROMOTION_PRICE : g.FINAL_PRICE;
+            return { rank: 1, goodscode: String(g.GD_NO), title: (g.GD_NM || '').trim(), list_price_yen: price ? String(price) : '' };
+          }
+          const code = fi && fi.connectUrl ? (String(fi.connectUrl).match(/goodscode=(\d+)/) || [])[1] : null;
+          if (code) {
+            return {
+              rank: 1,
+              goodscode: code,
+              title: String(fi.gdNm || '').trim(),
+              list_price_yen: String(fi.finalPriceText || '').replace(/[^\d]/g, ''),
+            };
+          }
+          const a = document.querySelector('.wrap_rank1st a[href*="goodscode="]');
+          const m = a && (a.getAttribute('href') || '').match(/goodscode=(\d+)/);
+          if (!m) return null;
+          const t = document.querySelector('.wrap_rank1st .info .title');
+          return { rank: 1, goodscode: m[1], title: t ? (t.getAttribute('title') || t.textContent).trim() : '', list_price_yen: '' };
         });
         const setItems = first && !listItems.some((it) => it.rank === 1) ? [first, ...listItems] : listItems;
         if (setItems.length < 50) throw new Error(`${suite.key} ${set.key}: only ${setItems.length} items parsed`);
