@@ -314,17 +314,24 @@ try {
               const pr = it.querySelector('.price_final_value');
               return { rank: rk && rk.textContent.trim(), title: ti && ti.textContent.trim().slice(0, 24), price: pr && pr.textContent.trim() };
             });
-            r.hero = await page.evaluate(() => {
+            // 본 수집(dailyShot)의 1위 추출과 동일한 로직을 그대로 돌려 결과를 확인한다
+            r.rank1 = await page.evaluate(() => {
               const fi = window.loadJsonData && window.loadJsonData.firstItem;
+              const g = fi && fi.goods;
+              if (g && g.GD_NO) {
+                const promo = (g.PROMOTION_INFO && g.PROMOTION_INFO[0]) || null;
+                const price = promo && promo.PROMOTION_PRICE ? promo.PROMOTION_PRICE : g.FINAL_PRICE;
+                return { via: 'nested', rank: 1, goodscode: String(g.GD_NO), title: (g.GD_NM || '').trim().slice(0, 16), list_price_yen: price ? String(price) : '' };
+              }
+              const code = fi && fi.connectUrl ? (String(fi.connectUrl).match(/goodscode=(\d+)/) || [])[1] : null;
+              if (code) {
+                return { via: 'flat', rank: 1, goodscode: code, title: String(fi.gdNm || '').trim().slice(0, 16), list_price_yen: String(fi.finalPriceText || '').replace(/[^\d]/g, '') };
+              }
               const a = document.querySelector('.wrap_rank1st a[href*="goodscode="]');
+              const m = a && (a.getAttribute('href') || '').match(/goodscode=(\d+)/);
+              if (!m) return null;
               const t = document.querySelector('.wrap_rank1st .info .title');
-              return {
-                jsonName: fi && fi.gdNm ? String(fi.gdNm).slice(0, 18) : null,
-                jsonUrl: fi && fi.connectUrl ? (String(fi.connectUrl).match(/goodscode=(\d+)/) || [])[1] : null,
-                jsonPrice: fi ? fi.finalPriceText : null,
-                domCode: a ? ((a.getAttribute('href') || '').match(/goodscode=(\d+)/) || [])[1] : null,
-                domTitle: t ? (t.getAttribute('title') || '').slice(0, 18) : null,
-              };
+              return { via: 'dom', rank: 1, goodscode: m[1], title: t ? (t.getAttribute('title') || t.textContent).trim().slice(0, 16) : '', list_price_yen: '' };
             });
           } catch (e) {
             r.error = e.message.slice(0, 120);
