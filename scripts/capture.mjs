@@ -294,7 +294,7 @@ try {
         });
         console.log('[debug:sample] ' + JSON.stringify(sample));
         // 누적 랭킹 세트 전환이 새 마크업에서도 동작하는지 사전 검증 (23:45 본 수집 전에 확인)
-        for (const probe of [{ type: 'T', tab: 'C', group: 0, age: 0 }, { type: 'T', tab: 'C', group: 2, age: 0 }, { type: 'T', tab: 'A', group: 0, age: 20 }, { type: 'Q', tab: 'C', group: 0, age: 0 }]) {
+        for (const probe of [{ type: 'T', tab: 'C', group: 0, age: 0 }, { type: 'T', tab: 'C', group: 6, age: 0 }, { type: 'T', tab: 'A', group: 0, age: 10 }]) {
           const r = { probe };
           try {
             await page.evaluate((s) => loadRankingData(s.type, s.tab, s.group, s.age), probe);
@@ -316,17 +316,15 @@ try {
             });
             r.hero = await page.evaluate(() => {
               const fi = window.loadJsonData && window.loadJsonData.firstItem;
-              const keys = fi ? Object.keys(fi).slice(0, 12) : null;
-              const goodsKeys = fi && fi.goods ? Object.keys(fi.goods).slice(0, 20) : null;
-              const el = document.querySelector('.rank_1st, .wrap_rank1st_slide, .megasale_ranking_textbox');
-              let html = null;
-              if (el) {
-                const box = el.closest('div[class*=rank1st], div[class*=ranking]') || el.parentElement || el;
-                const c = box.cloneNode(true);
-                c.querySelectorAll('svg,button,defs,filter,style').forEach((x) => x.remove());
-                html = c.outerHTML.replace(/\s+/g, ' ').slice(0, 1100);
-              }
-              return { firstItemKeys: keys, goodsKeys, heroHtml: html };
+              const a = document.querySelector('.wrap_rank1st a[href*="goodscode="]');
+              const t = document.querySelector('.wrap_rank1st .info .title');
+              return {
+                jsonName: fi && fi.gdNm ? String(fi.gdNm).slice(0, 18) : null,
+                jsonUrl: fi && fi.connectUrl ? (String(fi.connectUrl).match(/goodscode=(\d+)/) || [])[1] : null,
+                jsonPrice: fi ? fi.finalPriceText : null,
+                domCode: a ? ((a.getAttribute('href') || '').match(/goodscode=(\d+)/) || [])[1] : null,
+                domTitle: t ? (t.getAttribute('title') || '').slice(0, 18) : null,
+              };
             });
           } catch (e) {
             r.error = e.message.slice(0, 120);
