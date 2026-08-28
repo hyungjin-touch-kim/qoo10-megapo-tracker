@@ -294,7 +294,10 @@ try {
         });
         console.log('[debug:sample] ' + JSON.stringify(sample));
         // 누적 랭킹 세트 전환이 새 마크업에서도 동작하는지 사전 검증 (23:45 본 수집 전에 확인)
-        for (const probe of [{ type: 'T', tab: 'C', group: 0, age: 0 }, { type: 'T', tab: 'C', group: 6, age: 0 }, { type: 'T', tab: 'A', group: 0, age: 10 }]) {
+        const PROBES = [];
+        for (const su of RANK_SUITES) for (const st of AMOUNT_SETS)
+          PROBES.push({ type: su.type, tab: st.tab, group: st.group, age: st.age, kind: su.kind, cat: st.label });
+        for (const probe of PROBES) {
           const r = { probe };
           try {
             await page.evaluate((s) => loadRankingData(s.type, s.tab, s.group, s.age), probe);
@@ -306,13 +309,12 @@ try {
             await page.waitForTimeout(1000);
             r.globals = await page.evaluate(() => ({ type: window.type, tab: window.tab, groupCode: window.groupCode, age: window.age }));
             r.items = await page.$$eval('.list_v2_item', (l) => l.length);
-            r.first = await page.evaluate(() => {
+            r.rank2 = await page.evaluate(() => {
               const it = document.querySelector('.list_v2_item');
-              if (!it) return null;
-              const rk = it.querySelector('.rank_current');
-              const ti = it.querySelector('.list_v2_title');
-              const pr = it.querySelector('.price_final_value');
-              return { rank: rk && rk.textContent.trim(), title: ti && ti.textContent.trim().slice(0, 24), price: pr && pr.textContent.trim() };
+              const a = it && it.querySelector('a[href*="goodscode="]');
+              const rk = it && it.querySelector('.rank_current');
+              const m = a && (a.getAttribute('href') || '').match(/goodscode=(\d+)/);
+              return m ? { rank: rk && rk.textContent.trim(), goodscode: m[1] } : null;
             });
             // 본 수집(dailyShot)의 1위 추출과 동일한 로직을 그대로 돌려 결과를 확인한다
             r.rank1 = await page.evaluate(() => {
