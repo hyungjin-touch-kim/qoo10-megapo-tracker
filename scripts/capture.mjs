@@ -28,7 +28,7 @@ const WATCH_PATH = 'watch_list.txt';
 // 랭킹 마크업이 아예 없다(17:46 정규·17:50 백업 두 실행 연속 셀렉터 타임아웃 → 그 시간대 유실).
 // 랭킹은 매시 :40~45에 갱신되므로 다음 갱신 직전(:38)까지 3분 간격으로 계속 재시도한다.
 // 게이트가 아닌 실패(구조 변경 등)는 재시도하지 않고 즉시 던져 실패 메일로 드러나게 둔다.
-const RANK_SELECTOR = 'ul.megasale_rank_list li a span.rank_num';
+const RANK_SELECTOR = '.list_v2_item .rank_current';
 const GATE_HOST = 'wait-notice.qoo10.jp';
 const GATE_TEXT = 'アクセスが集中';
 const GATE_RETRY_GAP_MS = 3 * 60 * 1000;
@@ -174,7 +174,7 @@ try {
     await openWithGateRetry(page, RANKING_URL, RANK_SELECTOR, `${mode} ranking`);
     const codes = new Set();
     const collectCodes = async () => {
-      const cs = await page.$$eval('ul.megasale_rank_list li a', (as) =>
+      const cs = await page.$$eval('.list_v2_item a[href*="goodscode="]', (as) =>
         as.map((a) => (((a.getAttribute('href') || '').match(/goodscode=(\d+)/) || [])[1])).filter(Boolean)
       );
       for (const c of cs) codes.add(c);
@@ -291,13 +291,13 @@ try {
   } else {
     await openWithGateRetry(page, RANKING_URL, RANK_SELECTOR, `${mode} ranking`);
 
-    const items = await page.$$eval('ul.megasale_rank_list > li', (lis) =>
+    const items = await page.$$eval('.list_v2_item', (lis) =>
       lis
         .map((li) => {
-          const a = li.querySelector('a');
-          const rankEl = li.querySelector('.rank_num');
-          const titleEl = li.querySelector('.title');
-          const priceEl = li.querySelector('.price');
+          const a = li.querySelector('a[href*="goodscode="]');
+          const rankEl = li.querySelector('.rank_current');
+          const titleEl = li.querySelector('.list_v2_title');
+          const priceEl = li.querySelector('.price_final_value');
           if (!a || !rankEl) return null;
           const m = (a.getAttribute('href') || '').match(/goodscode=(\d+)/);
           return {
@@ -350,13 +350,13 @@ try {
         );
         await page.waitForTimeout(1000);
 
-        const listItems = await page.$$eval('ul.megasale_rank_list > li', (lis) =>
+        const listItems = await page.$$eval('.list_v2_item', (lis) =>
           lis
             .map((li) => {
-              const a = li.querySelector('a');
-              const rankEl = li.querySelector('.rank_num');
-              const titleEl = li.querySelector('.title');
-              const priceEl = li.querySelector('.price');
+              const a = li.querySelector('a[href*="goodscode="]');
+              const rankEl = li.querySelector('.rank_current');
+              const titleEl = li.querySelector('.list_v2_title');
+              const priceEl = li.querySelector('.price_final_value');
               if (!a || !rankEl) return null;
               const m = (a.getAttribute('href') || '').match(/goodscode=(\d+)/);
               return {
@@ -376,7 +376,7 @@ try {
           const price = promo && promo.PROMOTION_PRICE ? promo.PROMOTION_PRICE : g.FINAL_PRICE;
           return { rank: 1, goodscode: String(g.GD_NO), title: (g.GD_NM || '').trim(), list_price_yen: price ? String(price) : '' };
         });
-        const setItems = first ? [first, ...listItems] : listItems;
+        const setItems = first && !listItems.some((it) => it.rank === 1) ? [first, ...listItems] : listItems;
         if (setItems.length < 50) throw new Error(`${suite.key} ${set.key}: only ${setItems.length} items parsed`);
 
         fs.writeFileSync(`data/html/ranking_${suite.key}_${set.key}_${t.file}.html.gz`, zlib.gzipSync(Buffer.from(await page.content(), 'utf8')));
@@ -572,7 +572,7 @@ try {
     if (improved.length > 0) {
       ensureDir(SHOT_DIR);
       await page.goto(RANKING_URL, { waitUntil: 'domcontentloaded', timeout: 90000 });
-      await page.waitForSelector('ul.megasale_rank_list li', { timeout: 60000 });
+      await page.waitForSelector('.list_v2_item', { timeout: 60000 });
       await page.evaluate(async () => {
         for (let y = 0; y < document.body.scrollHeight; y += 1000) {
           window.scrollTo(0, y);
