@@ -23,6 +23,47 @@ const LASTRUN_PATH = 'data/last_run.json';
 const CUM_PATH = 'data/cumulative.csv';
 const WATCH_PATH = 'watch_list.txt';
 
+// ── 큐텐 혼잡 게이트 대응 (2026-08-28 메가와리 개시일 실측) ────────────────────
+// 개시 직후·타임세일 시각엔 사이트 전체가 wait-notice.qoo10.jp 대기 페이지로 리다이렉트돼
+// 랭킹 마크업이 아예 없다(17:46 정규·17:50 백업 두 실행 연속 셀렉터 타임아웃 → 그 시간대 유실).
+// 랭킹은 매시 :40~45에 갱신되므로 다음 갱신 직전(:38)까지 3분 간격으로 계속 재시도한다.
+// 게이트가 아닌 실패(구조 변경 등)는 재시도하지 않고 즉시 던져 실패 메일로 드러나게 둔다.
+const RANK_SELECTOR = 'ul.megasale_rank_list li a span.rank_num';
+const GATE_HOST = 'wait-notice.qoo10.jp';
+const GATE_TEXT = 'アクセスが集中';
+const GATE_RETRY_GAP_MS = 3 * 60 * 1000;
+// JST와 UTC는 분이 같으므로 러너의 분값을 그대로 쓴다. 잡 timeout(50분) 안에서 끝나도록 44분으로도 조인다.
+const gateDeadline = () => {
+  const min = new Date().getMinutes();
+  const untilNext38Ms = (min < 38 ? 38 - min : 98 - min) * 60 * 1000;
+  return Date.now() + Math.min(untilNext38Ms, 44 * 60 * 1000);
+};
+const isGated = async (page) => {
+  if (page.url().includes(GATE_HOST)) return true;
+  const html = await page.content().catch(() => '');
+  return html.includes(GATE_TEXT);
+};
+// selector가 null이면 페이지 도달만 확인 (이벤트 페이지 스크린샷용 — 게이트 화면이 찍히는 것을 막는다)
+const openWithGateRetry = async (page, url, selector, label) => {
+  const deadline = gateDeadline();
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
+      if (selector) await page.waitForSelector(selector, { timeout: attempt === 1 ? 60000 : 25000 });
+      else if (await isGated(page)) throw new Error('congestion gate');
+      if (attempt > 1) console.log(`${label}: recovered on attempt ${attempt}`);
+      return;
+    } catch (e) {
+      if (!(await isGated(page))) throw e;
+      if (Date.now() + GATE_RETRY_GAP_MS > deadline) {
+        throw new Error(`Qoo10 congestion gate persisted through ${attempt} attempts (${label})`);
+      }
+      console.log(`${label}: congestion gate (attempt ${attempt}) -> retry in 3 min`);
+      await page.waitForTimeout(GATE_RETRY_GAP_MS);
+    }
+  }
+};
+
 const COLS = [
   ['captured_date', '저장일'],
   ['captured_time', '저장시각'],
@@ -130,8 +171,7 @@ try {
   if (mode === 'prewarm') {
     // 상품 상세 캐시 예열 전용 (매일 23:02 트리거) — 23:46 본 수집의 보강이 자정 전에 끝나도록
     // 리얼타임+금액순 9세트의 상품코드를 훑어 캐시만 갱신. CSV/스크린샷 저장 없음.
-    await page.goto(RANKING_URL, { waitUntil: 'domcontentloaded', timeout: 90000 });
-    await page.waitForSelector('ul.megasale_rank_list li a span.rank_num', { timeout: 60000 });
+    await openWithGateRetry(page, RANKING_URL, RANK_SELECTOR, `${mode} ranking`);
     const codes = new Set();
     const collectCodes = async () => {
       const cs = await page.$$eval('ul.megasale_rank_list li a', (as) =>
@@ -186,7 +226,7 @@ try {
     fs.writeFileSync(CACHE_PATH, JSON.stringify(cache));
     console.log(`prewarm done: ${warmed}/${stale.length} enriched`);
   } else if (mode === 'screenshot') {
-    await page.goto(EVENT_URL, { waitUntil: 'domcontentloaded', timeout: 90000 });
+    await openWithGateRetry(page, EVENT_URL, null, 'event page');
     await page.evaluate(async () => {
       for (let y = 0; y < document.body.scrollHeight; y += 1000) {
         window.scrollTo(0, y);
@@ -204,8 +244,7 @@ try {
     });
     console.log(`screenshot saved: megapo_main_${t.date}.jpg`);
   } else {
-    await page.goto(RANKING_URL, { waitUntil: 'domcontentloaded', timeout: 90000 });
-    await page.waitForSelector('ul.megasale_rank_list li a span.rank_num', { timeout: 60000 });
+    await openWithGateRetry(page, RANKING_URL, RANK_SELECTOR, `${mode} ranking`);
 
     const items = await page.$$eval('ul.megasale_rank_list > li', (lis) =>
       lis
