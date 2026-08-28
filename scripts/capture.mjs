@@ -54,7 +54,14 @@ const openWithGateRetry = async (page, url, selector, label) => {
       if (attempt > 1) console.log(`${label}: recovered on attempt ${attempt}`);
       return;
     } catch (e) {
-      if (!(await isGated(page))) throw e;
+      if (!(await isGated(page))) {
+        // 게이트가 아닌 실패 — 일시적 렌더 지연일 수 있어 짧게 2회만 더 본다
+        // (2026-08-28 23:02 prewarm이 이 경우로 실패. 구조 변경이면 여전히 ~2분 안에 실패로 드러난다)
+        if (attempt >= 3) throw e;
+        console.log(`${label}: selector miss (attempt ${attempt}) -> quick retry in 20s`);
+        await page.waitForTimeout(20000);
+        continue;
+      }
       if (Date.now() + GATE_RETRY_GAP_MS > deadline) {
         throw new Error(`Qoo10 congestion gate persisted through ${attempt} attempts (${label})`);
       }
