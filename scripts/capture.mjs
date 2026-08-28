@@ -243,6 +243,32 @@ try {
       quality: 80,
     });
     console.log(`screenshot saved: megapo_main_${t.date}.jpg`);
+  } else if (mode === 'debug') {
+    // 일회성 진단: 메가와리 랭킹 페이지의 실제 마크업 확인 (2026-08-28 sid=22 종료 판명 후)
+    for (const [label, url] of [['ranking', RANKING_URL], ['event', EVENT_URL]]) {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
+      await page.waitForTimeout(8000);
+      const info = await page.evaluate(() => {
+        const n = (sel) => { try { return document.querySelectorAll(sel).length; } catch (e) { return -1; } };
+        const cls = [...new Set([...document.querySelectorAll('ul,ol,div,section')]
+          .map((e) => (typeof e.className === 'string' ? e.className : ''))
+          .filter((c) => /rank|best|list_item|goods/i.test(c)))].slice(0, 30);
+        return {
+          url: location.href,
+          title: document.title,
+          counts: {
+            'ul.megasale_rank_list': n('ul.megasale_rank_list'),
+            '.rank_num': n('.rank_num'),
+            '[class*=rank]': n('[class*=rank]'),
+            'a[href*=goodscode]': n('a[href*=goodscode]'),
+          },
+          loadRankingData: typeof window.loadRankingData,
+          loadJsonData: typeof window.loadJsonData,
+          classes: cls,
+        };
+      });
+      console.log(`[debug:${label}] ` + JSON.stringify(info));
+    }
   } else {
     await openWithGateRetry(page, RANKING_URL, RANK_SELECTOR, `${mode} ranking`);
 
