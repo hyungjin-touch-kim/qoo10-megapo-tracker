@@ -314,8 +314,20 @@ try {
               const pr = it.querySelector('.price_final_value');
               return { rank: rk && rk.textContent.trim(), title: ti && ti.textContent.trim().slice(0, 24), price: pr && pr.textContent.trim() };
             });
-            r.codes = await page.$$eval('.list_v2_item a[href*="goodscode="]', (as) =>
-              as.slice(0, 6).map((a) => ((a.getAttribute('href') || '').match(/goodscode=(\d+)/) || [])[1]).filter(Boolean));
+            r.hero = await page.evaluate(() => {
+              const fi = window.loadJsonData && window.loadJsonData.firstItem;
+              const keys = fi ? Object.keys(fi).slice(0, 12) : null;
+              const goodsKeys = fi && fi.goods ? Object.keys(fi.goods).slice(0, 20) : null;
+              const el = document.querySelector('.rank_1st, .wrap_rank1st_slide, .megasale_ranking_textbox');
+              let html = null;
+              if (el) {
+                const box = el.closest('div[class*=rank1st], div[class*=ranking]') || el.parentElement || el;
+                const c = box.cloneNode(true);
+                c.querySelectorAll('svg,button,defs,filter,style').forEach((x) => x.remove());
+                html = c.outerHTML.replace(/\s+/g, ' ').slice(0, 1100);
+              }
+              return { firstItemKeys: keys, goodsKeys, heroHtml: html };
+            });
           } catch (e) {
             r.error = e.message.slice(0, 120);
           }
