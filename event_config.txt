@@ -12,5 +12,5 @@
 
 period: 2026-08-28 17:00 ~ 2026-09-09
 event_name: 2609 megawari
-ranking_url: https://www.qoo10.jp/gmkt.inc/Special/Special.aspx?sid=22
+ranking_url: https://www.qoo10.jp/gmkt.inc/Special/Special.aspx?sid=164938
 event_url: https://www.qoo10.jp/gmkt.inc/Special/Special.aspx?sid=162285&banner_no=5773601
