@@ -274,9 +274,15 @@ try {
           const hero = document.querySelector('.rank_1st');
           return {
             listCount: document.querySelectorAll('.list_v2_rank').length,
-            parentTag: cont && cont.parentElement ? cont.parentElement.tagName + '.' + cont.parentElement.className : null,
-            parentHtml: cont && cont.parentElement
-              ? cont.parentElement.outerHTML.replace(/\s+/g, ' ').slice(0, 2600) : null,
+            itemClean: (() => {
+              const it = document.querySelector('.list_v2_item');
+              if (!it) return null;
+              const c = it.cloneNode(true);
+              c.querySelectorAll('svg,button,defs,filter').forEach((e) => e.remove());
+              return c.outerHTML.replace(/\s+/g, ' ').slice(0, 2400);
+            })(),
+            itemClasses: [...new Set([...document.querySelectorAll('.list_v2_item:first-of-type *')]
+              .map((e) => (typeof e.className === 'string' ? e.className.trim() : '')).filter(Boolean))].slice(0, 40),
           };
         });
         console.log('[debug:sample] ' + JSON.stringify(sample));
