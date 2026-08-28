@@ -268,6 +268,21 @@ try {
         };
       });
       console.log(`[debug:${label}] ` + JSON.stringify(info));
+      if (label === 'ranking') {
+        const sample = await page.evaluate(() => {
+          const cont = document.querySelector('.list_v2_rank');
+          const hero = document.querySelector('.rank_1st');
+          const item = cont && cont.children[0];
+          return {
+            contTag: cont ? cont.tagName + '.' + cont.className : null,
+            contChildren: cont ? cont.children.length : 0,
+            listCount: document.querySelectorAll('.list_v2_rank').length,
+            itemHtml: item ? item.outerHTML.slice(0, 1400) : null,
+            heroHtml: hero ? hero.outerHTML.slice(0, 900) : null,
+          };
+        });
+        console.log('[debug:sample] ' + JSON.stringify(sample));
+      }
     }
   } else {
     await openWithGateRetry(page, RANKING_URL, RANK_SELECTOR, `${mode} ranking`);
