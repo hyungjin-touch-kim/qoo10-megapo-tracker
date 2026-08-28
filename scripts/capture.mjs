@@ -286,6 +286,36 @@ try {
           };
         });
         console.log('[debug:sample] ' + JSON.stringify(sample));
+        // 누적 랭킹 세트 전환이 새 마크업에서도 동작하는지 사전 검증 (23:45 본 수집 전에 확인)
+        for (const probe of [{ type: 'T', tab: 'C', group: 0, age: 0 }, { type: 'T', tab: 'A', group: 0, age: 20 }]) {
+          const r = { probe };
+          try {
+            await page.evaluate((s) => loadRankingData(s.type, s.tab, s.group, s.age), probe);
+            await page.waitForFunction(
+              (s) => window.type === s.type && window.tab === s.tab && Number(window.groupCode) === s.group && Number(window.age) === s.age,
+              probe,
+              { timeout: 30000 }
+            );
+            await page.waitForTimeout(1000);
+            r.globals = await page.evaluate(() => ({ type: window.type, tab: window.tab, groupCode: window.groupCode, age: window.age }));
+            r.items = await page.$$eval('.list_v2_item', (l) => l.length);
+            r.first = await page.evaluate(() => {
+              const it = document.querySelector('.list_v2_item');
+              if (!it) return null;
+              const rk = it.querySelector('.rank_current');
+              const ti = it.querySelector('.list_v2_title');
+              const pr = it.querySelector('.price_final_value');
+              return { rank: rk && rk.textContent.trim(), title: ti && ti.textContent.trim().slice(0, 24), price: pr && pr.textContent.trim() };
+            });
+            r.tabLabel = await page.evaluate(() => {
+              const on = document.querySelector('.on, .active, [class*=selected]');
+              return on ? on.textContent.replace(/\s+/g, ' ').trim().slice(0, 40) : null;
+            });
+          } catch (e) {
+            r.error = e.message.slice(0, 120);
+          }
+          console.log('[debug:suite] ' + JSON.stringify(r));
+        }
       }
     }
   } else {
