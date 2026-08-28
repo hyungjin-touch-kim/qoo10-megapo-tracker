@@ -272,13 +272,11 @@ try {
         const sample = await page.evaluate(() => {
           const cont = document.querySelector('.list_v2_rank');
           const hero = document.querySelector('.rank_1st');
-          const item = cont && cont.children[0];
           return {
-            contTag: cont ? cont.tagName + '.' + cont.className : null,
-            contChildren: cont ? cont.children.length : 0,
             listCount: document.querySelectorAll('.list_v2_rank').length,
-            itemHtml: item ? item.outerHTML.slice(0, 1400) : null,
-            heroHtml: hero ? hero.outerHTML.slice(0, 900) : null,
+            item1: cont ? cont.outerHTML.replace(/\s+/g, ' ').slice(0, 2200) : null,
+            item2: (document.querySelectorAll('.list_v2_rank')[1] || {}).outerHTML
+              ? document.querySelectorAll('.list_v2_rank')[1].outerHTML.replace(/\s+/g, ' ').slice(0, 1200) : null,
           };
         });
         console.log('[debug:sample] ' + JSON.stringify(sample));
