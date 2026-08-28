@@ -287,7 +287,7 @@ try {
         });
         console.log('[debug:sample] ' + JSON.stringify(sample));
         // 누적 랭킹 세트 전환이 새 마크업에서도 동작하는지 사전 검증 (23:45 본 수집 전에 확인)
-        for (const probe of [{ type: 'T', tab: 'C', group: 0, age: 0 }, { type: 'T', tab: 'A', group: 0, age: 20 }]) {
+        for (const probe of [{ type: 'T', tab: 'C', group: 0, age: 0 }, { type: 'T', tab: 'C', group: 2, age: 0 }, { type: 'T', tab: 'A', group: 0, age: 20 }, { type: 'Q', tab: 'C', group: 0, age: 0 }]) {
           const r = { probe };
           try {
             await page.evaluate((s) => loadRankingData(s.type, s.tab, s.group, s.age), probe);
@@ -307,10 +307,8 @@ try {
               const pr = it.querySelector('.price_final_value');
               return { rank: rk && rk.textContent.trim(), title: ti && ti.textContent.trim().slice(0, 24), price: pr && pr.textContent.trim() };
             });
-            r.tabLabel = await page.evaluate(() => {
-              const on = document.querySelector('.on, .active, [class*=selected]');
-              return on ? on.textContent.replace(/\s+/g, ' ').trim().slice(0, 40) : null;
-            });
+            r.codes = await page.$$eval('.list_v2_item a[href*="goodscode="]', (as) =>
+              as.slice(0, 6).map((a) => ((a.getAttribute('href') || '').match(/goodscode=(\d+)/) || [])[1]).filter(Boolean));
           } catch (e) {
             r.error = e.message.slice(0, 120);
           }
