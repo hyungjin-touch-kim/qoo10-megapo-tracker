@@ -475,8 +475,12 @@ try {
         collected.push({ suite, set, items: setItems });
         } catch (e) {
           suiteFailures.push(`${suite.key}/${set.key}: ${e.message}`);
-          console.log(`${suite.key} ${set.key} FAILED: ${e.message} -> stopping remaining sets`);
-          break suiteLoop; // 페이지 종료(자정) 가능성 — 이후 세트도 실패할 것이므로 전체 중단
+          // 자정을 넘겼으면 페이지가 닫힌 것 — 이후 세트도 실패하므로 전체 중단.
+          // 자정 전이면 일시적 타임아웃일 수 있으니 다음 세트로 계속
+          // (2026-08-29 amount/age50 30초 타임아웃 1건이 이후 10세트를 연쇄 유실시킨 사고 재발 방지).
+          const rolled = jstParts().date !== t.date;
+          console.log(`${suite.key} ${set.key} FAILED: ${e.message} -> ${rolled ? 'past midnight, stopping remaining sets' : 'continuing with next set'}`);
+          if (rolled) break suiteLoop;
         }
       }
       }
