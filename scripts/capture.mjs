@@ -250,7 +250,104 @@ try {
       quality: 80,
     });
     console.log(`screenshot saved: megawari_main_${t.date}.jpg`);
+  } else if (mode === 'supple') {
+    // 일회성: サプリ・ダイエット 카테고리 누적 랭킹 회수 (2026-09-05 00시대 실행 — 매시 :40~45 갱신
+    // 전이면 9/4 마감 랭킹 그대로. 금액순 종합 top5를 어제 저장분과 대조해 일치할 때만 9/4 23:46으로 기록)
+    await openWithGateRetry(page, RANKING_URL, RANK_SELECTOR, 'supple ranking');
+    const parseList = () => page.$$eval('.list_v2_item', (lis) =>
+      lis.map((li) => {
+        const a = li.querySelector('a[href*="goodscode="]');
+        const rankEl = li.querySelector('.rank_current');
+        const titleEl = li.querySelector('.list_v2_title');
+        const priceEl = li.querySelector('.price_final_value');
+        if (!a || !rankEl) return null;
+        const m = (a.getAttribute('href') || '').match(/goodscode=(\d+)/);
+        return {
+          rank: parseInt(rankEl.textContent.trim(), 10),
+          goodscode: m ? m[1] : '',
+          title: titleEl ? (titleEl.getAttribute('title') || titleEl.textContent).trim() : '',
+          list_price_yen: priceEl ? priceEl.textContent.replace(/[^\d]/g, '') : '',
+        };
+      }).filter(Boolean));
+    const heroFirst = () => page.evaluate(() => {
+      const fi = window.loadJsonData && window.loadJsonData.firstItem;
+      const code = fi && fi.connectUrl ? (String(fi.connectUrl).match(/goodscode=(\d+)/) || [])[1] : null;
+      if (code) return { rank: 1, goodscode: code, title: String(fi.gdNm || '').trim(), list_price_yen: String(fi.finalPriceText || '').replace(/[^\d]/g, '') };
+      const a = document.querySelector('.wrap_rank1st a[href*="goodscode="]');
+      const m = a && (a.getAttribute('href') || '').match(/goodscode=(\d+)/);
+      if (!m) return null;
+      const t = document.querySelector('.wrap_rank1st .info .title');
+      return { rank: 1, goodscode: m[1], title: t ? (t.getAttribute('title') || t.textContent).trim() : '', list_price_yen: '' };
+    });
+    const loadSet = async (type, tab, group, age) => {
+      await page.evaluate((s) => loadRankingData(s.type, s.tab, s.group, s.age), { type, tab, group, age });
+      await page.waitForFunction(
+        (s) => window.type === s.type && window.tab === s.tab && Number(window.groupCode) === s.group && Number(window.age) === s.age,
+        { type, tab, group, age }, { timeout: 30000 });
+      await page.waitForTimeout(1000);
+    };
+
+    // 1) 검증: 금액순 종합 top5 vs 어제 23:46 저장분 (앞 4필드는 콤마 없는 값이라 split 안전)
+    await loadSet('T', 'C', 0, 0);
+    const totalNow = (await parseList()).slice(0, 6);
+    const yesterday = new Date(Date.now() + 9 * 3600 * 1000 - 24 * 3600 * 1000).toISOString().slice(0, 10);
+    const savedSet = new Set(fs.readFileSync(CUM_PATH, 'utf8').split(/\r?\n/)
+      .filter((L) => L.startsWith(`${yesterday},23:46,`) && /,금액순,종합\s*$/.test(L))
+      .map((L) => { const f = L.split(','); return `${f[2]}|${f[3]}`; }));
+    const hits = totalNow.filter((it) => savedSet.has(`${it.rank}|${it.goodscode}`)).length;
+    const matched = savedSet.size > 0 && hits >= 4;
+    console.log(`verify vs ${yesterday} 23:46 total: ${hits}/${totalNow.length} matched -> ${matched ? 'stamping as yesterday close' : 'stamping as NOW (ranking already refreshed)'}`);
+    const stampDate = matched ? yesterday : t.date;
+    const stampTime = matched ? '23:46' : t.hm;
+
+    // 2) サプリ・ダイエット 탭 클릭으로 group 코드 판별
+    const clicked = await page.evaluate(() => {
+      const els = [...document.querySelectorAll('a,button,li,span,div')]
+        .filter((e) => (e.textContent || '').trim().replace(/\s+/g, '') === 'サプリ・ダイエット' || ((e.textContent || '').includes('サプリ') && (e.textContent || '').trim().length < 14));
+      const el = els[0];
+      if (!el) return null;
+      (el.closest('a,button,li') || el).click();
+      return (el.textContent || '').trim().slice(0, 20);
+    });
+    if (!clicked) throw new Error('supple tab not found');
+    await page.waitForFunction(() => Number(window.groupCode) !== 0, null, { timeout: 20000 });
+    await page.waitForTimeout(1000);
+    const SUP_GROUP = await page.evaluate(() => Number(window.groupCode));
+    console.log(`supple tab "${clicked}" -> group=${SUP_GROUP}`);
+
+    // 3) 금액순·건수순 サプリ 수집 + 금액순 스크린샷
+    const cache = readJson(CACHE_PATH, {});
+    const empty = { shop_id: '', shop_name: '', brand: '', ref_price_yen: '', sell_price_yen: '', timesale_price_yen: '', timesale_hours: '', megapo_coupon_pct: '', megapoint: '' };
+    const outRows = [];
+    for (const suite of RANK_SUITES) {
+      await loadSet(suite.type, 'C', SUP_GROUP, 0);
+      const list = await parseList();
+      const first = await heroFirst();
+      const items = first && !list.some((x) => x.rank === 1) ? [first, ...list] : list;
+      if (items.length < 50) throw new Error(`supple ${suite.kind}: only ${items.length} items`);
+      console.log(`supple ${suite.kind}: ${items.length} items, top3 ${items.slice(0, 3).map((x) => x.goodscode).join('/')}`);
+      if (suite.key === 'amount') {
+        ensureDir(SHOT_DIR);
+        await page.screenshot({ path: `${SHOT_DIR}/ranking_amount_supple_${stampDate}.jpg`, fullPage: true, type: 'jpeg', quality: 75 });
+      }
+      for (const it of items) {
+        const info = cache[it.goodscode] || empty;
+        outRows.push({
+          captured_date: stampDate, captured_time: stampTime, rank: it.rank, goodscode: it.goodscode,
+          title: it.title, list_price_yen: it.list_price_yen,
+          shop_id: info.shop_id || '', shop_name: info.shop_name || '', brand: info.brand || '',
+          ref_price_yen: info.ref_price_yen || '', sell_price_yen: info.sell_price_yen || '',
+          timesale_price_yen: info.timesale_price_yen || '', timesale_hours: info.timesale_hours || '',
+          megapo_coupon_pct: info.megapo_coupon_pct || '', megapoint: info.megapoint || '',
+          watch: '', prev_rank: '', change: '-', url: GOODS_URL(it.goodscode),
+          rank_kind: suite.kind, rank_category: '서플다이어트',
+        });
+      }
+    }
+    fs.appendFileSync(CUM_PATH, outRows.map((r) => KEYS.map((k) => csvField(r[k])).join(',')).join('\r\n') + '\r\n');
+    console.log(`supple saved: ${outRows.length} rows stamped ${stampDate} ${stampTime}`);
   } else if (mode === 'debug') {
+
     // 일회성 진단: 메가와리 랭킹 페이지의 실제 마크업 확인 (2026-08-28 sid=22 종료 판명 후)
     for (const [label, url] of [['ranking', RANKING_URL], ['event', EVENT_URL]]) {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
