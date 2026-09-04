@@ -20,7 +20,8 @@ const GOODS_URL = (code) => `https://www.qoo10.jp/gmkt.inc/goods/goods.aspx?good
 const ENRICH_TTL_HOURS = 3;
 const CACHE_PATH = 'data/product_cache.json';
 const LASTRUN_PATH = 'data/last_run.json';
-const CUM_PATH = 'data/cumulative.csv';
+// 이벤트별 분할 파일 (2026-09-05 사용자 지시 — 단일 cumulative.csv에서 전환). event_name 공백은 _로.
+const CUM_PATH = `data/cumulative_${EVENT_NAME.replace(/\s+/g, '_')}.csv`;
 const WATCH_PATH = 'watch_list.txt';
 
 // ── 큐텐 혼잡 게이트 대응 (2026-08-28 메가와리 개시일 실측) ────────────────────
@@ -111,6 +112,7 @@ const AMOUNT_SETS = [
   { key: 'total', tab: 'C', group: 0, age: 0, label: '종합' },
   { key: 'beauty', tab: 'C', group: 2, age: 0, label: '뷰티' },
   { key: 'food', tab: 'C', group: 6, age: 0, label: '식품' },
+  { key: 'supple', tab: 'C', group: 16, age: 0, label: '서플다이어트' }, // サプリ・ダイエット — 2026-09-05 발견·편입(자사 이너뷰티 주전장)
   { key: 'age0', tab: 'A', group: 0, age: 0, label: '전연령' },
   { key: 'age10', tab: 'A', group: 0, age: 10, label: '10대' },
   { key: 'age20', tab: 'A', group: 0, age: 20, label: '20대' },
