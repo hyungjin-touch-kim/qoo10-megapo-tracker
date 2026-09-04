@@ -297,43 +297,17 @@ try {
     const stampDate = matched ? yesterday : t.date;
     const stampTime = matched ? savedTime : t.hm;
 
-    // 2) 랭킹 카테고리 그리드의 サプリ・ダイエット 아이콘을 정확 매칭해 클릭 → 목적지 파악
-    //    (글로벌 네비의 Group.aspx 카테고리 링크는 제외 — 1차 오탐)
-    const candidates = await page.evaluate(() => {
-      const out = [];
-      for (const e of document.querySelectorAll('a,button,li,span,div')) {
-        const t = (e.textContent || '').trim().replace(/\s+/g, '');
-        if (t !== 'サプリ・ダイエット') continue;
-        const a = e.closest('a');
-        out.push({ tag: e.tagName, cls: String(e.className).slice(0, 40), href: a ? (a.getAttribute('href') || '') : '', oc: (e.getAttribute('onclick') || (a ? a.getAttribute('onclick') : '') || '').slice(0, 80) });
-      }
-      return out;
-    });
-    console.log('supple candidates: ' + JSON.stringify(candidates));
-    const beforeUrl = page.url();
-    const clicked = await page.evaluate(() => {
-      for (const e of document.querySelectorAll('a,button,li,span,div')) {
-        const t = (e.textContent || '').trim().replace(/\s+/g, '');
-        if (t !== 'サプリ・ダイエット') continue;
-        const a = e.closest('a');
-        if (a && (a.getAttribute('href') || '').includes('Group.aspx')) continue;
-        (a || e).click();
-        return true;
-      }
-      return false;
-    });
-    if (!clicked) throw new Error('supple grid icon not found');
-    await page.waitForLoadState('domcontentloaded').catch(() => null);
-    await page.waitForTimeout(4000);
-    console.log(`landed: ${page.url()} (navigated: ${page.url() !== beforeUrl})`);
-    await page.waitForSelector(RANK_SELECTOR, { timeout: 45000 });
-    const recon = await page.evaluate(() => ({
-      url: location.href, title: document.title,
-      hasLoad: typeof window.loadRankingData,
-      type: window.type, tab: window.tab, group: Number(window.groupCode), age: Number(window.age),
-      items: document.querySelectorAll('.list_v2_item').length,
-    }));
-    console.log('recon: ' + JSON.stringify(recon));
+    // 2) サプリ・ダイエット = 같은 페이지의 카테고리 탭 group=16
+    //    (v3 후보 덤프에서 확정: BUTTON onclick="loadRankingData('T', 'C', 16, 0)")
+    //    v3가 종합 랭킹을 '서플다이어트'로 오기록한 행이 있으면 먼저 제거
+    const SUP_GROUP = 16;
+    const lines = fs.readFileSync(CUM_PATH, 'utf8').split(/\r?\n/);
+    const kept = lines.filter((L) => !/,(금액순|건수순),서플다이어트\s*$/.test(L));
+    if (kept.length !== lines.length) {
+      fs.writeFileSync(CUM_PATH, kept.join('\r\n'));
+      console.log(`purged ${lines.length - kept.length} mislabeled supple rows`);
+    }
+    const recon = { hasLoad: 'function' };
 
     // 3) 금액순(T)·건수순(Q) 수집 — 이동한 페이지의 기본 tab/group/age를 그대로 쓰고 type만 전환
     const cache = readJson(CACHE_PATH, {});
@@ -341,8 +315,8 @@ try {
     const outRows = [];
     for (const suite of RANK_SUITES) {
       if (recon.hasLoad === 'function') {
-        await page.evaluate((s) => loadRankingData(s.ty, window.tab, Number(window.groupCode) || 0, Number(window.age) || 0), { ty: suite.type });
-        await page.waitForFunction((ty) => window.type === ty, suite.type, { timeout: 30000 });
+        await page.evaluate((s) => loadRankingData(s.ty, 'C', s.g, 0), { ty: suite.type, g: SUP_GROUP });
+        await page.waitForFunction((s) => window.type === s.ty && Number(window.groupCode) === s.g, { ty: suite.type, g: SUP_GROUP }, { timeout: 30000 });
         await page.waitForTimeout(1000);
       } else if (suite.key !== 'amount') {
         console.log('no loadRankingData on supple page -> single snapshot only');
