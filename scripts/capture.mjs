@@ -297,19 +297,41 @@ try {
     const stampDate = matched ? yesterday : t.date;
     const stampTime = matched ? savedTime : t.hm;
 
-    // 2) サプリ・ダイエット 링크 추출 → 직접 이동
-    const supHref = await page.evaluate(() => {
-      const as = [...document.querySelectorAll('a')].filter((e) => (e.textContent || '').includes('サプリ'));
-      return as.length ? as[0].getAttribute('href') : null;
+    // 2) 랭킹 카테고리 그리드의 サプリ・ダイエット 아이콘을 정확 매칭해 클릭 → 목적지 파악
+    //    (글로벌 네비의 Group.aspx 카테고리 링크는 제외 — 1차 오탐)
+    const candidates = await page.evaluate(() => {
+      const out = [];
+      for (const e of document.querySelectorAll('a,button,li,span,div')) {
+        const t = (e.textContent || '').trim().replace(/\s+/g, '');
+        if (t !== 'サプリ・ダイエット') continue;
+        const a = e.closest('a');
+        out.push({ tag: e.tagName, cls: String(e.className).slice(0, 40), href: a ? (a.getAttribute('href') || '') : '', oc: (e.getAttribute('onclick') || (a ? a.getAttribute('onclick') : '') || '').slice(0, 80) });
+      }
+      return out;
     });
-    if (!supHref) throw new Error('supple link not found on ranking page');
-    const supUrl = new URL(supHref, RANKING_URL).href;
-    console.log(`supple link: ${supUrl}`);
-    await openWithGateRetry(page, supUrl, RANK_SELECTOR, 'supple page');
+    console.log('supple candidates: ' + JSON.stringify(candidates));
+    const beforeUrl = page.url();
+    const clicked = await page.evaluate(() => {
+      for (const e of document.querySelectorAll('a,button,li,span,div')) {
+        const t = (e.textContent || '').trim().replace(/\s+/g, '');
+        if (t !== 'サプリ・ダイエット') continue;
+        const a = e.closest('a');
+        if (a && (a.getAttribute('href') || '').includes('Group.aspx')) continue;
+        (a || e).click();
+        return true;
+      }
+      return false;
+    });
+    if (!clicked) throw new Error('supple grid icon not found');
+    await page.waitForLoadState('domcontentloaded').catch(() => null);
+    await page.waitForTimeout(4000);
+    console.log(`landed: ${page.url()} (navigated: ${page.url() !== beforeUrl})`);
+    await page.waitForSelector(RANK_SELECTOR, { timeout: 45000 });
     const recon = await page.evaluate(() => ({
       url: location.href, title: document.title,
       hasLoad: typeof window.loadRankingData,
       type: window.type, tab: window.tab, group: Number(window.groupCode), age: Number(window.age),
+      items: document.querySelectorAll('.list_v2_item').length,
     }));
     console.log('recon: ' + JSON.stringify(recon));
 
