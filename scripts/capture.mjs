@@ -251,8 +251,9 @@ try {
     });
     console.log(`screenshot saved: megawari_main_${t.date}.jpg`);
   } else if (mode === 'supple') {
-    // 일회성: サプリ・ダイエット 카테고리 누적 랭킹 회수 (2026-09-05 00시대 실행 — 매시 :40~45 갱신
-    // 전이면 9/4 마감 랭킹 그대로. 금액순 종합 top5를 어제 저장분과 대조해 일치할 때만 9/4 23:46으로 기록)
+    // 일회성: サプリ・ダイエット 누적 랭킹 회수. 이 카테고리는 랭킹 페이지 내 탭이 아니라
+    // 별도 페이지 링크다(1차 시도에서 클릭 후 loadRankingData 소실로 판명, 2026-09-05).
+    // 매시 :40~45 갱신 전이면 어제 마감 랭킹 그대로 → 금액순 종합 상위를 어제 마감 저장분과 대조.
     await openWithGateRetry(page, RANKING_URL, RANK_SELECTOR, 'supple ranking');
     const parseList = () => page.$$eval('.list_v2_item', (lis) =>
       lis.map((li) => {
@@ -279,48 +280,52 @@ try {
       const t = document.querySelector('.wrap_rank1st .info .title');
       return { rank: 1, goodscode: m[1], title: t ? (t.getAttribute('title') || t.textContent).trim() : '', list_price_yen: '' };
     });
-    const loadSet = async (type, tab, group, age) => {
-      await page.evaluate((s) => loadRankingData(s.type, s.tab, s.group, s.age), { type, tab, group, age });
-      await page.waitForFunction(
-        (s) => window.type === s.type && window.tab === s.tab && Number(window.groupCode) === s.group && Number(window.age) === s.age,
-        { type, tab, group, age }, { timeout: 30000 });
-      await page.waitForTimeout(1000);
-    };
 
-    // 1) 검증: 금액순 종합 top5 vs 어제 23:46 저장분 (앞 4필드는 콤마 없는 값이라 split 안전)
-    await loadSet('T', 'C', 0, 0);
+    // 1) 검증: 금액순 종합 top6 vs 어제 마감(23:4x) 저장분
+    await page.evaluate(() => loadRankingData('T', 'C', 0, 0));
+    await page.waitForFunction(() => window.type === 'T' && window.tab === 'C', null, { timeout: 30000 });
+    await page.waitForTimeout(1000);
     const totalNow = (await parseList()).slice(0, 6);
     const yesterday = new Date(Date.now() + 9 * 3600 * 1000 - 24 * 3600 * 1000).toISOString().slice(0, 10);
-    const savedSet = new Set(fs.readFileSync(CUM_PATH, 'utf8').split(/\r?\n/)
-      .filter((L) => L.startsWith(`${yesterday},23:46,`) && /,금액순,종합\s*$/.test(L))
-      .map((L) => { const f = L.split(','); return `${f[2]}|${f[3]}`; }));
+    const savedRows = fs.readFileSync(CUM_PATH, 'utf8').split(/\r?\n/)
+      .filter((L) => L.startsWith(`${yesterday},23:4`) && /,금액순,종합\s*$/.test(L));
+    const savedTime = savedRows.length ? savedRows[0].split(',')[1] : '';
+    const savedSet = new Set(savedRows.map((L) => { const f = L.split(','); return `${f[2]}|${f[3]}`; }));
     const hits = totalNow.filter((it) => savedSet.has(`${it.rank}|${it.goodscode}`)).length;
     const matched = savedSet.size > 0 && hits >= 4;
-    console.log(`verify vs ${yesterday} 23:46 total: ${hits}/${totalNow.length} matched -> ${matched ? 'stamping as yesterday close' : 'stamping as NOW (ranking already refreshed)'}`);
+    console.log(`verify vs ${yesterday} ${savedTime} total (saved ${savedSet.size} rows): ${hits}/${totalNow.length} matched -> ${matched ? 'stamping as yesterday close' : 'stamping as NOW'}`);
     const stampDate = matched ? yesterday : t.date;
-    const stampTime = matched ? '23:46' : t.hm;
+    const stampTime = matched ? savedTime : t.hm;
 
-    // 2) サプリ・ダイエット 탭 클릭으로 group 코드 판별
-    const clicked = await page.evaluate(() => {
-      const els = [...document.querySelectorAll('a,button,li,span,div')]
-        .filter((e) => (e.textContent || '').trim().replace(/\s+/g, '') === 'サプリ・ダイエット' || ((e.textContent || '').includes('サプリ') && (e.textContent || '').trim().length < 14));
-      const el = els[0];
-      if (!el) return null;
-      (el.closest('a,button,li') || el).click();
-      return (el.textContent || '').trim().slice(0, 20);
+    // 2) サプリ・ダイエット 링크 추출 → 직접 이동
+    const supHref = await page.evaluate(() => {
+      const as = [...document.querySelectorAll('a')].filter((e) => (e.textContent || '').includes('サプリ'));
+      return as.length ? as[0].getAttribute('href') : null;
     });
-    if (!clicked) throw new Error('supple tab not found');
-    await page.waitForFunction(() => Number(window.groupCode) !== 0, null, { timeout: 20000 });
-    await page.waitForTimeout(1000);
-    const SUP_GROUP = await page.evaluate(() => Number(window.groupCode));
-    console.log(`supple tab "${clicked}" -> group=${SUP_GROUP}`);
+    if (!supHref) throw new Error('supple link not found on ranking page');
+    const supUrl = new URL(supHref, RANKING_URL).href;
+    console.log(`supple link: ${supUrl}`);
+    await openWithGateRetry(page, supUrl, RANK_SELECTOR, 'supple page');
+    const recon = await page.evaluate(() => ({
+      url: location.href, title: document.title,
+      hasLoad: typeof window.loadRankingData,
+      type: window.type, tab: window.tab, group: Number(window.groupCode), age: Number(window.age),
+    }));
+    console.log('recon: ' + JSON.stringify(recon));
 
-    // 3) 금액순·건수순 サプリ 수집 + 금액순 스크린샷
+    // 3) 금액순(T)·건수순(Q) 수집 — 이동한 페이지의 기본 tab/group/age를 그대로 쓰고 type만 전환
     const cache = readJson(CACHE_PATH, {});
     const empty = { shop_id: '', shop_name: '', brand: '', ref_price_yen: '', sell_price_yen: '', timesale_price_yen: '', timesale_hours: '', megapo_coupon_pct: '', megapoint: '' };
     const outRows = [];
     for (const suite of RANK_SUITES) {
-      await loadSet(suite.type, 'C', SUP_GROUP, 0);
+      if (recon.hasLoad === 'function') {
+        await page.evaluate((s) => loadRankingData(s.ty, window.tab, Number(window.groupCode) || 0, Number(window.age) || 0), { ty: suite.type });
+        await page.waitForFunction((ty) => window.type === ty, suite.type, { timeout: 30000 });
+        await page.waitForTimeout(1000);
+      } else if (suite.key !== 'amount') {
+        console.log('no loadRankingData on supple page -> single snapshot only');
+        break;
+      }
       const list = await parseList();
       const first = await heroFirst();
       const items = first && !list.some((x) => x.rank === 1) ? [first, ...list] : list;
