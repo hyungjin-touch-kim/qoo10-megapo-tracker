@@ -1,0 +1,2 @@
+# append 전용 CSV: 이중 실행(백업 tick+정규)이 겹쳐도 양쪽 행 모두 보존 (2026-09-06, 9/5 21:46 rebase 충돌 재발 방지)
+data/cumulative_*.csv merge=union

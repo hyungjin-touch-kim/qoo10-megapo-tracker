@@ -120,6 +120,8 @@ jobs:
               # product_cache.json race with an overlapping run (e.g. long prewarm):
               # keep this run's copy and continue; any other conflict still fails loudly
               git checkout --theirs data/product_cache.json && git add data/product_cache.json
+              # last_run.json도 겹침 시 이 실행분 유지 (prev 비교 1회 어긋남만 — 무해)
+              git checkout --theirs data/last_run.json 2>/dev/null && git add data/last_run.json || true
               GIT_EDITOR=true git rebase --continue || { git rebase --abort; exit 1; }
             fi
             git push
