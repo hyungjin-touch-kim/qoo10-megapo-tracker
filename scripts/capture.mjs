@@ -103,11 +103,14 @@ const LABELS = COLS.map((c) => c[1]);
 // !! 타입 코드 함정: 'Q'=累積件数順(건수순), 'T'=累積金額順(금액순) — 클래스명(btn_amount=Q,
 // btn_order=T)이 표시 라벨과 반대. 2026-07-10 탭 라벨 이미지로 검증 (7/9 수집분은 건수순이었음)
 // 수집 스위트: 금액순(T) = CSV + 스크린샷(카테고리별 매일, 연령대별은 마지막날 1회) / 건수순(Q) = CSV만
+// 식품(food)은 CSV만 수집하고 스크린샷은 만들지 않는다 (2026-09-09 사용자 지시 — 기존 저장분도 삭제)
 const RANK_SUITES = [
   { key: 'amount', kind: '금액순', type: 'T' },
   { key: 'count', kind: '건수순', type: 'Q' },
 ];
-const EVENT_END_DATE = (cfgText.match(/\d{4}-\d{2}-\d{2}\s*~\s*(\d{4}-\d{2}-\d{2})/) || [])[1] || '';
+// period 줄에 시작 시각(HH:MM)이 붙으면 종전 정규식이 매칭에 실패해 마지막날 판정이 죽는다
+// (2026-09-09 발견 — 메가와리 period '2026-08-28 17:00 ~ 2026-09-09'). ^period: 앵커 + 시각 허용.
+const EVENT_END_DATE = (cfgText.match(/^period:.*?~\s*(\d{4}-\d{2}-\d{2})/m) || [])[1] || '';
 const AMOUNT_SETS = [
   { key: 'total', tab: 'C', group: 0, age: 0, label: '종합' },
   { key: 'beauty', tab: 'C', group: 2, age: 0, label: '뷰티' },
@@ -552,8 +555,9 @@ try {
         if (setItems.length < 50) throw new Error(`${suite.key} ${set.key}: only ${setItems.length} items parsed`);
 
         fs.writeFileSync(`data/html/ranking_${suite.key}_${set.key}_${t.file}.html.gz`, zlib.gzipSync(Buffer.from(await page.content(), 'utf8')));
-        // 스크린샷: 금액순 카테고리별(종합·뷰티·식품)은 매일, 금액순 연령대별은 마지막날 1회, 건수순은 없음
-        if (suite.key === 'amount' && (set.tab === 'C' || isLastDay)) {
+        // 스크린샷: 금액순 카테고리별(종합·뷰티·서플)은 매일, 금액순 연령대별은 마지막날 1회,
+        // 식품·건수순은 없음
+        if (suite.key === 'amount' && set.key !== 'food' && (set.tab === 'C' || isLastDay)) {
           await page.evaluate(async () => {
             for (let y = 0; y < document.body.scrollHeight; y += 1000) {
               window.scrollTo(0, y);
