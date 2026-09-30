@@ -132,6 +132,18 @@ function jstParts() {
   return { date, hm: time.slice(0, 5), file: `${date}_${time.slice(0, 2)}${time.slice(3, 5)}` };
 }
 
+// 리얼타임 랭킹은 매시 :40~45 갱신 → :45 전에 읽은 랭킹은 직전 시간대 것.
+// 늦은 수집(예: 01:02)은 직전 시간대 HH:59로 라벨 (00시대면 전날 23:59).
+function rankSlot(now = new Date()) {
+  const jst = new Date(now.getTime() + 9 * 3600 * 1000);
+  if (jst.getUTCMinutes() >= 45) {
+    const s = jst.toISOString();
+    return { date: s.slice(0, 10), hm: s.slice(11, 16) };
+  }
+  const p = new Date(jst.getTime() - 3600 * 1000).toISOString();
+  return { date: p.slice(0, 10), hm: `${p.slice(11, 13)}:59` };
+}
+
 function ensureDir(p) {
   fs.mkdirSync(p, { recursive: true });
 }
@@ -467,6 +479,7 @@ try {
         .filter(Boolean)
     );
     if (items.length < 50) throw new Error(`only ${items.length} items parsed`);
+    const slot = rankSlot(); // 리얼타임 행·워치 스크린샷의 저장일/저장시각 (랭킹을 읽은 시점 기준)
 
     // gzipped original HTML
     ensureDir('data/html');
@@ -640,8 +653,8 @@ try {
     let failed = 0;
     for (const it of stale) {
       // 자정을 넘기면 이벤트 종료/익일 세팅 값이 긁힘 → 오염 방지 위해 중단 (빈칸이 잘못된 값보다 낫다)
-      if (jstParts().date !== t.date) {
-        console.log(`enrich cutoff: date rolled past ${t.date} — stopping remaining enrichment`);
+      if (jstParts().date !== slot.date) {
+        console.log(`enrich cutoff: date rolled past ${slot.date} — stopping remaining enrichment`);
         break;
       }
       try {
@@ -698,8 +711,8 @@ try {
         }
       }
       return {
-        captured_date: t.date,
-        captured_time: t.hm,
+        captured_date: slot.date,
+        captured_time: slot.hm,
         rank: it.rank,
         goodscode: it.goodscode,
         title: it.title,
@@ -733,7 +746,7 @@ try {
     const ranks = {};
     for (const it of items) ranks[it.goodscode] = it.rank;
     // 워치 브랜드별 "오늘 최고 순위" 추적 — 갱신된 브랜드만 스크린샷 (하루 최고 시점 1장 정책)
-    const prevBest = lastRun && lastRun.watchBest && lastRun.watchBest.date === t.date ? lastRun.watchBest.best : {};
+    const prevBest = lastRun && lastRun.watchBest && lastRun.watchBest.date === slot.date ? lastRun.watchBest.best : {};
     const improved = [];
     const mergedBest = { ...prevBest };
     for (const k of Object.keys(brandBest)) {
@@ -742,7 +755,7 @@ try {
         improved.push(k);
       }
     }
-    const watchBest = { date: t.date, best: mergedBest };
+    const watchBest = { date: slot.date, best: mergedBest };
     // amountRanks(누적 세트별 전일 순위)는 23:45 실행이 아닌 시간에도 보존해야 함
     const carryAmount = lastRun && lastRun.amountRanks ? { amountRanks: lastRun.amountRanks } : {};
     fs.writeFileSync(LASTRUN_PATH, JSON.stringify({ captured: `${t.date} ${t.hm}`, ranks, watchBest, ...carryAmount }));
@@ -766,10 +779,10 @@ try {
       const shotName = (nm) => (nm || '').replace(/【[^】]*】|\[[^\]]*\]/g, '').replace(/[\\/:*?"<>|]/g, '').trim().slice(0, 10);
       for (const k of improved) {
         for (const f of fs.readdirSync(SHOT_DIR)) {
-          if (f.startsWith(`watch_${k}_${t.date}`)) fs.unlinkSync(`${SHOT_DIR}/${f}`);
+          if (f.startsWith(`watch_${k}_${slot.date}`)) fs.unlinkSync(`${SHOT_DIR}/${f}`);
         }
         const nm = shotName(brandBestName[k]);
-        fs.copyFileSync(tmpShot, `${SHOT_DIR}/watch_${k}_${t.date}_${t.hm.slice(0, 2)}시_${mergedBest[k]}위${nm ? '_' + nm : ''}.jpg`);
+        fs.copyFileSync(tmpShot, `${SHOT_DIR}/watch_${k}_${slot.date}_${slot.hm.slice(0, 2)}시_${mergedBest[k]}위${nm ? '_' + nm : ''}.jpg`);
       }
       fs.unlinkSync(tmpShot);
       console.log(`watch best-rank screenshot updated: ${improved.map((k) => `${k}=${mergedBest[k]}`).join(', ')}`);
