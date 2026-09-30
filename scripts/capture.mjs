@@ -457,7 +457,7 @@ try {
         }
       }
     }
-  } else {
+  } else realtime: {
     await openWithGateRetry(page, RANKING_URL, RANK_SELECTOR, `${mode} ranking`);
 
     const items = await page.$$eval('.list_v2_item', (lis) =>
@@ -480,6 +480,11 @@ try {
     );
     if (items.length < 50) throw new Error(`only ${items.length} items parsed`);
     const slot = rankSlot(); // 리얼타임 행·워치 스크린샷의 저장일/저장시각 (랭킹을 읽은 시점 기준)
+    // 종료 다음날 유예 실행(capture.yml)이 :45를 넘겨 읽었으면 이벤트 후 랭킹 → 저장 없이 종료
+    if (EVENT_END_DATE && slot.date > EVENT_END_DATE) {
+      console.log(`ranking slot ${slot.date} ${slot.hm} is after event end ${EVENT_END_DATE} -> nothing saved`);
+      break realtime;
+    }
 
     // gzipped original HTML
     ensureDir('data/html');

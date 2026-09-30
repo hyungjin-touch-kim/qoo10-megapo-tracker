@@ -58,6 +58,14 @@ jobs:
               if [ -n "$END_TS" ] && [ "$NOW_TS" -gt "$END_TS" ]; then
                 RUN=false
                 echo "event ended ($END JST) -> skip (no disable; external trigger may call year-round)"
+                # 유예: 다음날 00:00~00:44엔 페이지가 아직 마지막날 23시대 랭킹 → 그 시간대 리얼타임이 CSV에 없으면 수집
+                # (날짜만 쓴 종료일 한정. 읽는 시점이 :45를 넘기면 capture.mjs가 저장 없이 종료)
+                EVN=$(grep -E '^event_name:' event_config.txt | head -1 | sed 's/^event_name:[[:space:]]*//' | xargs || true)
+                CUM="data/cumulative_$(echo "$EVN" | tr -s ' ' '_').csv"
+                if [ "$END" = "${END%%:*}" ] && [ "$NOW_TS" -lt $((END_TS + 1 + 2700)) ] && ! grep -E "^$END,23:" "$CUM" 2>/dev/null | grep -q ',리얼타임,'; then
+                  RUN=true
+                  echo "grace: $END 23시대 realtime missing in $CUM -> capture"
+                fi
               fi
             fi
           fi
