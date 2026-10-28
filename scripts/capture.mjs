@@ -58,7 +58,15 @@ const openWithGateRetry = async (page, url, selector, label) => {
       if (!(await isGated(page))) {
         // 게이트가 아닌 실패 — 일시적 렌더 지연일 수 있어 짧게 2회만 더 본다
         // (2026-08-28 23:02 prewarm이 이 경우로 실패. 구조 변경이면 여전히 ~2분 안에 실패로 드러난다)
-        if (attempt >= 3) throw e;
+        if (attempt >= 3) {
+          // 개시 창에선 첫 랭킹이 늦게 뜰 수 있어 3분 간격으로 계속 본다. 단 다른 페이지로 튕겼으면
+          // (구 sid → 종료 alert 후 홈 리다이렉트, 2026-08-28) URL 문제라 즉시 실패시켜 메일로 드러낸다.
+          const bounced = sidOf(url) && sidOf(page.url()) !== sidOf(url);
+          if (!selector || !inStartWindow() || bounced || Date.now() + GATE_RETRY_GAP_MS > deadline) throw e;
+          console.log(`${label}: selector miss in start window (attempt ${attempt}, at ${page.url()}) -> retry in 3 min`);
+          await page.waitForTimeout(GATE_RETRY_GAP_MS);
+          continue;
+        }
         console.log(`${label}: selector miss (attempt ${attempt}) -> quick retry in 20s`);
         await page.waitForTimeout(20000);
         continue;
@@ -112,6 +120,19 @@ const RANK_SUITES = [
 // period 줄에 시작 시각(HH:MM)이 붙으면 종전 정규식이 매칭에 실패해 마지막날 판정이 죽는다
 // (2026-09-09 발견 — 메가와리 period '2026-08-28 17:00 ~ 2026-09-09'). ^period: 앵커 + 시각 허용.
 const EVENT_END_DATE = (cfgText.match(/^period:.*?~\s*(\d{4}-\d{2}-\d{2})/m) || [])[1] || '';
+// 개시 후 첫 랭킹 = 개시 시각 이후 첫 :45 (랭킹은 매시 :40~45 갱신). 그 전 ranking 실행은 저장 없이 끝내고
+// (예: 10:00 개시일 10:15 백업 cron이 개시 전 페이지를 09:59로 기록·실패 메일 내는 것 방지),
+// 첫 랭킹 후 53분(다음 :38까지)은 「개시 창」 — 첫 랭킹이 늦게 떠도 그 시간대를 잃지 않게 셀렉터 미스를 계속 재시도한다.
+// (2026-10-29 도입, 11/20 10:00 개시 메가와리 대비. 8/28 개시 후 5시간·10/1 첫 시간대 유실 전례)
+const FIRST_RANK_MS = (() => {
+  const m = cfgText.match(/^period:\s*(\d{4}-\d{2}-\d{2})(?:\s+(\d{2}):(\d{2}))?\s*~/m);
+  if (!m) return 0;
+  const [, d, hh = '00', mm = '00'] = m;
+  const at45 = Date.parse(`${d}T${hh}:45:00+09:00`);
+  return Number(mm) < 45 ? at45 : at45 + 3600 * 1000;
+})();
+const inStartWindow = () => FIRST_RANK_MS > 0 && Date.now() >= FIRST_RANK_MS && Date.now() < FIRST_RANK_MS + 53 * 60 * 1000;
+const sidOf = (u) => { try { return new URL(u).searchParams.get('sid'); } catch { return null; } };
 const AMOUNT_SETS = [
   { key: 'total', tab: 'C', group: 0, age: 0, label: '종합' },
   { key: 'beauty', tab: 'C', group: 2, age: 0, label: '뷰티' },
@@ -192,7 +213,9 @@ const page = await browser.newPage({
 try {
   const t = jstParts();
 
-  if (mode === 'prewarm') {
+  if (mode === 'ranking' && Date.now() < FIRST_RANK_MS) {
+    console.log(`before first event ranking (${new Date(FIRST_RANK_MS + 9 * 3600 * 1000).toISOString().slice(0, 16)} JST) -> nothing saved`);
+  } else if (mode === 'prewarm') {
     // 상품 상세 캐시 예열 전용 (매일 23:02 트리거) — 23:46 본 수집의 보강이 자정 전에 끝나도록
     // 리얼타임+금액순 9세트의 상품코드를 훑어 캐시만 갱신. CSV/스크린샷 저장 없음.
     await openWithGateRetry(page, RANKING_URL, RANK_SELECTOR, `${mode} ranking`);
