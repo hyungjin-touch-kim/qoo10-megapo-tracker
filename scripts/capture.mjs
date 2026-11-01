@@ -283,13 +283,15 @@ try {
     });
     await page.waitForTimeout(3000);
     ensureDir(SHOT_DIR);
+    // 접두어는 이벤트 종류를 따른다 (9월 메가와리 이후 megawari로 고정돼 메가포도 megawari_main으로 저장됐었음)
+    const mainShot = `${/megawari/i.test(EVENT_NAME) ? 'megawari' : 'megapo'}_main_${t.date}.jpg`;
     await page.screenshot({
-      path: `${SHOT_DIR}/megawari_main_${t.date}.jpg`,
+      path: `${SHOT_DIR}/${mainShot}`,
       fullPage: true,
       type: 'jpeg',
       quality: 80,
     });
-    console.log(`screenshot saved: megawari_main_${t.date}.jpg`);
+    console.log(`screenshot saved: ${mainShot}`);
   } else if (mode === 'supple') {
     // 일회성: サプリ・ダイエット 누적 랭킹 회수. 이 카테고리는 랭킹 페이지 내 탭이 아니라
     // 별도 페이지 링크다(1차 시도에서 클릭 후 loadRankingData 소실로 판명, 2026-09-05).
