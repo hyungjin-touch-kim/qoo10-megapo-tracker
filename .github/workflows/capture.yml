@@ -132,5 +132,11 @@ jobs:
               git checkout --theirs data/last_run.json 2>/dev/null && git add data/last_run.json || true
               GIT_EDITOR=true git rebase --continue || { git rebase --abort; exit 1; }
             fi
-            git push
+            # GitHub 쪽 일시 오류(500 등)로 push만 실패해 수집분이 통째로 유실되는 것 방지 (2026-11-04 18시대)
+            for i in 1 2 3 4 5; do
+              git push && break
+              if [ "$i" = 5 ]; then exit 1; fi
+              echo "git push failed (attempt $i) - retrying in 30s"
+              sleep 30
+            done
           fi

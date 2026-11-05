@@ -188,17 +188,20 @@ function parseGoodsPage(html) {
     const m = html.match(re);
     return m ? m[1].trim() : '';
   };
-  const shopM = html.match(/href="https:\/\/www\.qoo10\.jp\/shop\/([^"?]+)"[^>]*class="name">([^<]+)/);
+  // 2026-10 상품 페이지 개편 대응 — 옛 dl_sell_price·shop 링크·参考価格·セール実施時間 표기가 사라짐
+  // (참고가격·타임세일시간은 새 페이지에 없어 빈칸 유지)
+  const isTimesale = /"discount_title_msg":"タイムセール"/.test(html);
+  const couponPct = pick(/"promotion_coupon_cost_rate":(\d+)/);
   return {
-    shop_id: shopM ? shopM[1] : '',
-    shop_name: shopM ? shopM[2].trim() : '',
+    shop_id: pick(/"minishopURL":"https:\/\/www\.qoo10\.jp\/shop\/([^"?]+)/),
+    shop_name: pick(/id="aMobileShopTitle"[^>]*>([^<]*)/).replace(/&amp;/g, '&'),
     brand: pick(/"brand"\s*:\s*\{"@type":"Brand","name":"([^"]*)"/),
     ref_price_yen: pick(/参考価格<\/dt>\s*<dd>\s*([\d,]+)/).replace(/,/g, ''),
-    sell_price_yen: pick(/id="dl_sell_price"[\s\S]{0,300}?<strong[^>]*>\s*([\d,]+)/).replace(/,/g, ''),
-    timesale_price_yen: pick(/タイムセール価格<\/strong><\/dt>\s*<dd>\s*<strong[^>]*>\s*([\d,]+)/).replace(/,/g, ''),
+    sell_price_yen: pick(/class="desc">販売価格<\/span>\s*<span class="value">([\d,]+)/).replace(/,/g, ''),
+    timesale_price_yen: isTimesale ? pick(/"final_price":(\d+)/) : '',
     timesale_hours: pick(/セール実施時間\s*([0-9:~\s]+)/),
-    megapo_coupon_pct: pick(/class="discount">最大(\d+)%/),
-    megapoint: pick(/id="span_megapoint">([\d,]+)/).replace(/,/g, ''),
+    megapo_coupon_pct: couponPct === '0' ? '' : couponPct,
+    megapoint: pick(/id="span_mega_point"[^>]*>([\d,]+)/).replace(/,/g, ''),
   };
 }
 
@@ -390,6 +393,13 @@ try {
     fs.appendFileSync(CUM_PATH, outRows.map((r) => KEYS.map((k) => csvField(r[k])).join(',')).join('\r\n') + '\r\n');
     console.log(`supple saved: ${outRows.length} rows stamped ${stampDate} ${stampTime}`);
   } else if (mode === 'debug') {
+
+    // 상품 상세 파서가 러너에서 받는 페이지에도 맞는지 확인 (타임세일 유무·옵션 유무가 다른 표본)
+    for (const code of ['854993704', '427789020', '1202799135']) {
+      await page.goto(GOODS_URL(code), { waitUntil: 'domcontentloaded', timeout: 45000 });
+      await page.waitForTimeout(500);
+      console.log(`[debug:goods ${code}] ` + JSON.stringify(parseGoodsPage(await page.content())));
+    }
 
     // 일회성 진단: 메가와리 랭킹 페이지의 실제 마크업 확인 (2026-08-28 sid=22 종료 판명 후)
     for (const [label, url] of [['ranking', RANKING_URL], ['event', EVENT_URL]]) {
