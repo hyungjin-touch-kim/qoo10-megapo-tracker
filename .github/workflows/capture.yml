@@ -140,3 +140,17 @@ jobs:
               sleep 30
             done
           fi
+
+      # 상세 컬럼 빈칸 감지(capture.mjs) — 수집분은 위에서 저장됐고, 실행을 실패시켜 메일 + Discord 알림
+      - name: Alert on blank columns
+        if: steps.period.outputs.run == 'true'
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          [ -f enrich_alert.txt ] || exit 0
+          MSG="$(cat enrich_alert.txt)"
+          echo "::error::$MSG"
+          if [ -n "$DISCORD_WEBHOOK_URL" ]; then
+            jq -n --arg c "$MSG" '{content:$c}' | curl -fsS -H 'Content-Type: application/json' -d @- "$DISCORD_WEBHOOK_URL" || echo "discord send failed"
+          fi
+          exit 1

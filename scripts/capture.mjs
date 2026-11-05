@@ -189,15 +189,16 @@ function parseGoodsPage(html) {
     return m ? m[1].trim() : '';
   };
   // 2026-10 상품 페이지 개편 대응 — 옛 dl_sell_price·shop 링크·参考価格·セール実施時間 표기가 사라짐
-  // (참고가격·타임세일시간은 새 페이지에 없어 빈칸 유지)
+  // 참고가격 = 취소선 가격(툴팁 라벨은 「販売価格」이지만 옛 参考価格과 같은 값, 랭킹 price_original_value와 일치)
+  // 판매가격 = 일반할인 후·쿠폰 전 가격(final_price). 타임세일시간은 새 페이지에 없어 빈칸 유지
   const isTimesale = /"discount_title_msg":"タイムセール"/.test(html);
   const couponPct = pick(/"promotion_coupon_cost_rate":(\d+)/);
   return {
     shop_id: pick(/"minishopURL":"https:\/\/www\.qoo10\.jp\/shop\/([^"?]+)/),
     shop_name: pick(/id="aMobileShopTitle"[^>]*>([^<]*)/).replace(/&amp;/g, '&'),
     brand: pick(/"brand"\s*:\s*\{"@type":"Brand","name":"([^"]*)"/),
-    ref_price_yen: pick(/参考価格<\/dt>\s*<dd>\s*([\d,]+)/).replace(/,/g, ''),
-    sell_price_yen: pick(/class="desc">販売価格<\/span>\s*<span class="value">([\d,]+)/).replace(/,/g, ''),
+    ref_price_yen: pick(/class="desc">販売価格<\/span>\s*<span class="value">([\d,]+)/).replace(/,/g, ''),
+    sell_price_yen: pick(/"final_price":(\d+)/),
     timesale_price_yen: isTimesale ? pick(/"final_price":(\d+)/) : '',
     timesale_hours: pick(/セール実施時間\s*([0-9:~\s]+)/),
     megapo_coupon_pct: couponPct === '0' ? '' : couponPct,
@@ -709,6 +710,14 @@ try {
       }
     }
     fs.writeFileSync(CACHE_PATH, JSON.stringify(cache));
+
+    // 페이지 개편으로 상세 컬럼이 조용히 비는 것 감지 (2026-10-01부터 5주간 미발견) — 저장은 그대로 하고 capture.yml이 실패 처리·알림
+    const blankCols = [['점포명', 'shop_name'], ['참고가격', 'ref_price_yen'], ['판매가격', 'sell_price_yen']]
+      .filter(([, f]) => items.filter((it) => (cache[it.goodscode] || {})[f]).length < items.length * 0.5)
+      .map(([label]) => label);
+    if (blankCols.length) {
+      fs.writeFileSync('enrich_alert.txt', `[큐텐 메가포 수집] ${slot.date} ${slot.hm} 리얼타임 ${blankCols.join('·')} 충전율 50% 미만 — 상품 페이지 개편 의심, parseGoodsPage 점검 필요 (mode=debug)`);
+    }
 
     // change detection vs previous run
     const lastRun = readJson(LASTRUN_PATH, null);
