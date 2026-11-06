@@ -104,8 +104,13 @@ jobs:
       - name: Install Playwright
         if: steps.period.outputs.run == 'true'
         run: |
-          npm install playwright@1
-          npx playwright install --with-deps chromium
+          # 버전 고정 — playwright@1은 새 릴리스 직후 설치가 깨져 그 시간대가 유실된다 (2026-11-06 03시대). 올릴 때 이 줄만 수정
+          for i in 1 2 3; do
+            npm install playwright@1.65.0 && npx playwright install --with-deps chromium && break
+            if [ "$i" = 3 ]; then exit 1; fi
+            echo "playwright install failed (attempt $i) - retrying in 60s"
+            sleep 60
+          done
 
       - name: Capture
         if: steps.period.outputs.run == 'true'
@@ -154,3 +159,15 @@ jobs:
             jq -n --arg c "$MSG" '{content:$c}' | curl -fsS -H 'Content-Type: application/json' -d @- "$DISCORD_WEBHOOK_URL" || echo "discord send failed"
           fi
           exit 1
+
+      # 실행 실패 알림 (GitHub 실패 메일과 별도). 빈칸 알림은 위 단계에서 이미 보냈으므로 건너뜀
+      - name: Notify failure on Discord
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          RUN_INFO: ${{ github.event_name }}, ${{ github.ref_name }}, ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -f enrich_alert.txt ] && exit 0
+          [ -n "$DISCORD_WEBHOOK_URL" ] || exit 0
+          MSG="[큐텐 메가포 수집] 실행 실패 $(TZ=Asia/Tokyo date '+%m/%d %H:%M') JST ($RUN_INFO)"
+          jq -n --arg c "$MSG" '{content:$c}' | curl -fsS -H 'Content-Type: application/json' -d @- "$DISCORD_WEBHOOK_URL"

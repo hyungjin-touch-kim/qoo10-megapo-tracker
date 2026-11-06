@@ -6,7 +6,7 @@
 
 # ── 우선 매칭: 점포명이 자사 토큰과 겹치는 계열 항목은 여기(위쪽)에 둘 것 ──
 [계열]
-dailybeauty: daily beauty, hair & beauty, hair &amp; beauty
+dailybeauty: daily beauty, hair & beauty, hair &amp; beauty, ミジャンセン, mise en scene
 
 [자사]
 iope: アイオペ, iope
@@ -28,5 +28,4 @@ etude: エチュード, etude
 espoir: エスポア, espoir
 osulloc: オスロック, osulloc
 innisfree: イニスフリー, innisfree
-misenscene: ミジャンセン, mise en scene
 # 추가 계열 브랜드는 여기에 같은 형식으로
