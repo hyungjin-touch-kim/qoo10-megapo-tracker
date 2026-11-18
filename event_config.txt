@@ -10,7 +10,7 @@
 # (3·6·9·11월 메가와리는 페이지 구조가 다를 수 있음 — 첫날 실행 결과 확인,
 #  실패(빨간 X) 시 파싱 수정 필요)
 
-period: 2026-11-01 ~ 2026-11-06
-event_name: 2611 megapo
-ranking_url: https://www.qoo10.jp/gmkt.inc/Special/Special.aspx?sid=22
-event_url: https://www.qoo10.jp/gmkt.inc/Special/Special.aspx?sid=4628&banner_no=5899144
+period: 2026-11-20 10:00 ~ 2026-12-02
+event_name: 2611 megawari
+ranking_url: https://www.qoo10.jp/gmkt.inc/Special/Special.aspx?sid=164938
+event_url: https://www.qoo10.jp/gmkt.inc/Special/Special.aspx?sid=162285&banner_no=5930302
