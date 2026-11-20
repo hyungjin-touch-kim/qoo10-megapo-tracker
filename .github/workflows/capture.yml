@@ -29,6 +29,10 @@ jobs:
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 이벤트 시점 SHA가 아니라 시작 시점 main 최신 — 동시성 대기열 뒤 실행이 앞 실행의 last_run.json을
+          # 못 보고 같은 랭킹을 또 저장하다 푸시 충돌로 실패하던 것 방지 (2026-11-21 06:45 백업·06:46 크론잡 겹침)
+          ref: main
 
       - name: Check event period
         id: period
