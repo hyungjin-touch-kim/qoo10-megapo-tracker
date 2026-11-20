@@ -120,16 +120,24 @@ const RANK_SUITES = [
 // period 줄에 시작 시각(HH:MM)이 붙으면 종전 정규식이 매칭에 실패해 마지막날 판정이 죽는다
 // (2026-09-09 발견 — 메가와리 period '2026-08-28 17:00 ~ 2026-09-09'). ^period: 앵커 + 시각 허용.
 const EVENT_END_DATE = (cfgText.match(/^period:.*?~\s*(\d{4}-\d{2}-\d{2})/m) || [])[1] || '';
-// 개시 후 첫 랭킹 = 개시 시각 이후 첫 :45 (랭킹 갱신은 :35 전후지만 개시 첫 시간대는 여유를 둔다). 그 전 ranking 실행은 저장 없이 끝내고
+// 리얼타임 랭킹 갱신 시각(분). 2026-11-20 실측 — 종전 가정 :40~45보다 이르다.
+// 과거 :20–:44 읽기 분포: :34 이전은 다음 시간대와 일치한 적 없음, :35부터 갱신분이 나타남.
+const RANK_UPDATE_MIN = 35;
+// :35 이후 읽었는데 직전 저장과 같으면 아직 갱신 전 → 1분 간격으로 이 분까지 다시 읽는다 (일일 실행은 자정 대비 더 일찍 끊음)
+const RANK_RETRY_UNTIL_MIN = 55;
+const RANK_RETRY_UNTIL_MIN_DAILY = 50;
+const DAILY_HM = '23:40'; // 일일 수집(누적 18세트·랭킹 스크린샷) 시작 기준 — 이 시각 이후 시작한 23시대 실행
+
+// 개시 후 첫 랭킹 = 개시 시각 이후 첫 :35 (RANK_UPDATE_MIN). 그 전 ranking 실행은 저장 없이 끝내고
 // (예: 10:00 개시일 10:15 백업 cron이 개시 전 페이지를 09:59로 기록·실패 메일 내는 것 방지),
-// 첫 랭킹 후 53분(다음 :38까지)은 「개시 창」 — 첫 랭킹이 늦게 떠도 그 시간대를 잃지 않게 셀렉터 미스를 계속 재시도한다.
-// (2026-10-29 도입, 11/20 10:00 개시 메가와리 대비. 8/28 개시 후 5시간·10/1 첫 시간대 유실 전례)
+// 첫 랭킹 후 53분(다음 :28까지)은 「개시 창」 — 첫 랭킹이 늦게 떠도 그 시간대를 잃지 않게 셀렉터 미스를 계속 재시도한다.
+// (2026-10-29 도입, 11/20 10:00 개시 메가와리 대비. 8/28 개시 후 5시간·10/1 첫 시간대 유실 전례. 2026-11-21 :45→:35)
 const FIRST_RANK_MS = (() => {
   const m = cfgText.match(/^period:\s*(\d{4}-\d{2}-\d{2})(?:\s+(\d{2}):(\d{2}))?\s*~/m);
   if (!m) return 0;
   const [, d, hh = '00', mm = '00'] = m;
-  const at45 = Date.parse(`${d}T${hh}:45:00+09:00`);
-  return Number(mm) < 45 ? at45 : at45 + 3600 * 1000;
+  const atUpd = Date.parse(`${d}T${hh}:${String(RANK_UPDATE_MIN).padStart(2, '0')}:00+09:00`);
+  return Number(mm) < RANK_UPDATE_MIN ? atUpd : atUpd + 3600 * 1000;
 })();
 const inStartWindow = () => FIRST_RANK_MS > 0 && Date.now() >= FIRST_RANK_MS && Date.now() < FIRST_RANK_MS + 53 * 60 * 1000;
 const sidOf = (u) => { try { return new URL(u).searchParams.get('sid'); } catch { return null; } };
@@ -152,10 +160,6 @@ function jstParts() {
   const [date, time] = s.split(' ');
   return { date, hm: time.slice(0, 5), file: `${date}_${time.slice(0, 2)}${time.slice(3, 5)}` };
 }
-
-// 리얼타임 랭킹 갱신 시각(분). 2026-11-20 실측 — 종전 가정 :40~45보다 이르다.
-// 과거 :20–:44 읽기 분포: :34 이전은 다음 시간대와 일치한 적 없음, :35부터 갱신분이 나타남.
-const RANK_UPDATE_MIN = 35;
 
 // 리얼타임 랭킹의 시간대(저장일·저장시각) 판정 — 2026-11-20 개정.
 // 종전 「:45 전 읽기 = 직전 시간대」 규칙은 갱신이 끝난 :35–:44 읽기를 한 시간 앞으로 붙였다
@@ -508,36 +512,48 @@ try {
       }
     }
   } else realtime: {
-    await openWithGateRetry(page, RANKING_URL, RANK_SELECTOR, `${mode} ranking`);
+    const isDailyRun = parseInt(t.hm.slice(0, 2), 10) === 23 && t.hm >= DAILY_HM;
+    const retryUntil = isDailyRun ? RANK_RETRY_UNTIL_MIN_DAILY : RANK_RETRY_UNTIL_MIN;
+    let items;
+    let prevRun;
+    let dupRealtime;
+    for (;;) {
+      await openWithGateRetry(page, RANKING_URL, RANK_SELECTOR, `${mode} ranking`);
 
-    const items = await page.$$eval('.list_v2_item', (lis) =>
-      lis
-        .map((li) => {
-          const a = li.querySelector('a[href*="goodscode="]');
-          const rankEl = li.querySelector('.rank_current');
-          const titleEl = li.querySelector('.list_v2_title');
-          const priceEl = li.querySelector('.price_final_value');
-          if (!a || !rankEl) return null;
-          const m = (a.getAttribute('href') || '').match(/goodscode=(\d+)/);
-          return {
-            rank: parseInt(rankEl.textContent.trim(), 10),
-            goodscode: m ? m[1] : '',
-            title: titleEl ? (titleEl.getAttribute('title') || titleEl.textContent).trim() : '',
-            list_price_yen: priceEl ? priceEl.textContent.replace(/[^\d]/g, '') : '',
-          };
-        })
-        .filter(Boolean)
-    );
-    if (items.length < 50) throw new Error(`only ${items.length} items parsed`);
-    const prevRun = readJson(LASTRUN_PATH, null);
-    // 직전 저장과 같은 랭킹 = 새 정보 없음 → 저장 생략 (23:45 이후 일일 실행은 누적 18세트·스크린샷 때문에 계속)
-    const dupRealtime = sameRanks(items, prevRun && prevRun.ranks);
-    if (dupRealtime && !(t.hm >= '23:45')) {
+      items = await page.$$eval('.list_v2_item', (lis) =>
+        lis
+          .map((li) => {
+            const a = li.querySelector('a[href*="goodscode="]');
+            const rankEl = li.querySelector('.rank_current');
+            const titleEl = li.querySelector('.list_v2_title');
+            const priceEl = li.querySelector('.price_final_value');
+            if (!a || !rankEl) return null;
+            const m = (a.getAttribute('href') || '').match(/goodscode=(\d+)/);
+            return {
+              rank: parseInt(rankEl.textContent.trim(), 10),
+              goodscode: m ? m[1] : '',
+              title: titleEl ? (titleEl.getAttribute('title') || titleEl.textContent).trim() : '',
+              list_price_yen: priceEl ? priceEl.textContent.replace(/[^\d]/g, '') : '',
+            };
+          })
+          .filter(Boolean)
+      );
+      if (items.length < 50) throw new Error(`only ${items.length} items parsed`);
+      prevRun = readJson(LASTRUN_PATH, null);
+      dupRealtime = sameRanks(items, prevRun && prevRun.ranks);
+      // 갱신 시각(:35) 이후인데 직전 저장과 같으면 아직 갱신 전 → 1분 뒤 다시 읽는다 (트리거를 :41로 당긴 뒤 갱신 늦은 시간대 유실 방지)
+      const nowMin = new Date(Date.now() + 9 * 3600 * 1000).getUTCMinutes();
+      if (!dupRealtime || nowMin < RANK_UPDATE_MIN || nowMin >= retryUntil) break;
+      console.log(`ranking not updated yet at :${String(nowMin).padStart(2, '0')} (same as ${prevRun.captured}) -> retry in 60s`);
+      await page.waitForTimeout(60000);
+    }
+    // 직전 저장과 같은 랭킹 = 새 정보 없음 → 저장 생략 (23:40 이후 일일 실행은 누적 18세트·스크린샷 때문에 계속)
+    if (dupRealtime && !isDailyRun) {
       console.log(`ranking identical to last saved (${prevRun.captured}) -> nothing saved`);
       break realtime;
     }
     const slot = rankSlot(); // 리얼타임 행·워치 스크린샷의 저장일/저장시각 (랭킹을 읽은 시점 기준)
-    // 종료 다음날 유예 실행(capture.yml)이 :45를 넘겨 읽었으면 이벤트 후 랭킹 → 저장 없이 종료
+    // 종료 다음날 유예 실행(capture.yml)이 :35를 넘겨 읽었으면 이벤트 후 랭킹 → 저장 없이 종료
     if (EVENT_END_DATE && slot.date > EVENT_END_DATE) {
       console.log(`ranking slot ${slot.date} ${slot.hm} is after event end ${EVENT_END_DATE} -> nothing saved`);
       break realtime;
@@ -548,10 +564,11 @@ try {
     const html = await page.content();
     fs.writeFileSync(`data/html/ranking_realtime_${t.file}.html.gz`, zlib.gzipSync(Buffer.from(html, 'utf8')));
 
-    // ===== 23:45 일일 수집 선행부: 순위 파싱·스크린샷을 상세 보강보다 먼저 (자정 대비) =====
-    // 조건은 "23:45 이후 시작"으로 엄격화 — 23시대 이른 실행(백업 cron 등)이 22:4x 갱신분으로
-    // 일일 수집을 대신하는 것을 방지. 트리거는 매일 23:46 외부 스케줄러.
-    const dailyShot = parseInt(t.hm.slice(0, 2), 10) === 23 && t.hm >= '23:45';
+    // ===== 일일 수집 선행부(23:40 이후 시작): 순위 파싱·스크린샷을 상세 보강보다 먼저 (자정 대비) =====
+    // 조건은 "DAILY_HM 이후 시작"으로 엄격화 — 23시대 이른 실행(백업 cron 등)이 22시대 갱신분으로
+    // 일일 수집을 대신하는 것을 방지. 트리거는 매일 23:41 외부 스케줄러(2026-11-21 :46→:41).
+    // 23시대 갱신 전이면 위 재조회 루프가 :50까지 기다린다.
+    const dailyShot = isDailyRun;
     const collected = [];
     const suiteFailures = [];
     if (dailyShot) {

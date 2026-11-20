@@ -2,8 +2,8 @@ name: Qoo10 Megapo Capture
 
 on:
   schedule:
-    - cron: '45 * * * *'   # hourly ranking (JST every hour at :45; 23:45 run also saves ranking screenshot)
-    - cron: '15 * * * *'   # backup tick: captures only if the :45 tick was missed (guard in period step)
+    - cron: '40 * * * *'   # hourly ranking backup (JST :40 — ranking updates ~:35; 23:40+ run also does the daily suites/screenshots)
+    - cron: '15 * * * *'   # backup tick: captures only if the :40/:41 runs were missed (guard in period step)
     - cron: '30 0 * * *'   # daily 00:30 UTC = 09:30 JST event page full screenshot
   workflow_dispatch:
     inputs:
