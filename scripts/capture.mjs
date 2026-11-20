@@ -512,10 +512,14 @@ try {
       }
     }
   } else realtime: {
-    const isDailyRun = parseInt(t.hm.slice(0, 2), 10) === 23 && t.hm >= DAILY_HM;
+    const prevRun = readJson(LASTRUN_PATH, null);
+    const prevAt = (prevRun && prevRun.captured) || '';
+    // 오늘 DAILY_HM 이후 실행이 이미 저장했으면 일일 수집 완료 — 겹친 두 번째 실행은 일반 실행 (누적 18세트 이중 저장 방지)
+    const isDailyRun = parseInt(t.hm.slice(0, 2), 10) === 23 && t.hm >= DAILY_HM && prevAt < `${t.date} ${DAILY_HM}`;
+    // 이번 시간 갱신(:35) 이후 시작한 실행이 이미 저장했으면 같은 시간대 두 번째 실행 — 재조회 없이 판단
+    const slotSaved = prevAt >= `${t.date} ${t.hm.slice(0, 2)}:${String(RANK_UPDATE_MIN).padStart(2, '0')}`;
     const retryUntil = isDailyRun ? RANK_RETRY_UNTIL_MIN_DAILY : RANK_RETRY_UNTIL_MIN;
     let items;
-    let prevRun;
     let dupRealtime;
     for (;;) {
       await openWithGateRetry(page, RANKING_URL, RANK_SELECTOR, `${mode} ranking`);
@@ -539,11 +543,10 @@ try {
           .filter(Boolean)
       );
       if (items.length < 50) throw new Error(`only ${items.length} items parsed`);
-      prevRun = readJson(LASTRUN_PATH, null);
       dupRealtime = sameRanks(items, prevRun && prevRun.ranks);
       // 갱신 시각(:35) 이후인데 직전 저장과 같으면 아직 갱신 전 → 1분 뒤 다시 읽는다 (트리거를 :41로 당긴 뒤 갱신 늦은 시간대 유실 방지)
       const nowMin = new Date(Date.now() + 9 * 3600 * 1000).getUTCMinutes();
-      if (!dupRealtime || nowMin < RANK_UPDATE_MIN || nowMin >= retryUntil) break;
+      if (!dupRealtime || slotSaved || nowMin < RANK_UPDATE_MIN || nowMin >= retryUntil) break;
       console.log(`ranking not updated yet at :${String(nowMin).padStart(2, '0')} (same as ${prevRun.captured}) -> retry in 60s`);
       await page.waitForTimeout(60000);
     }
