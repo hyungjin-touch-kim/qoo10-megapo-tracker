@@ -120,7 +120,7 @@ const RANK_SUITES = [
 // period 줄에 시작 시각(HH:MM)이 붙으면 종전 정규식이 매칭에 실패해 마지막날 판정이 죽는다
 // (2026-09-09 발견 — 메가와리 period '2026-08-28 17:00 ~ 2026-09-09'). ^period: 앵커 + 시각 허용.
 const EVENT_END_DATE = (cfgText.match(/^period:.*?~\s*(\d{4}-\d{2}-\d{2})/m) || [])[1] || '';
-// 개시 후 첫 랭킹 = 개시 시각 이후 첫 :45 (랭킹은 매시 :40~45 갱신). 그 전 ranking 실행은 저장 없이 끝내고
+// 개시 후 첫 랭킹 = 개시 시각 이후 첫 :45 (랭킹 갱신은 :35 전후지만 개시 첫 시간대는 여유를 둔다). 그 전 ranking 실행은 저장 없이 끝내고
 // (예: 10:00 개시일 10:15 백업 cron이 개시 전 페이지를 09:59로 기록·실패 메일 내는 것 방지),
 // 첫 랭킹 후 53분(다음 :38까지)은 「개시 창」 — 첫 랭킹이 늦게 떠도 그 시간대를 잃지 않게 셀렉터 미스를 계속 재시도한다.
 // (2026-10-29 도입, 11/20 10:00 개시 메가와리 대비. 8/28 개시 후 5시간·10/1 첫 시간대 유실 전례)
@@ -153,16 +153,30 @@ function jstParts() {
   return { date, hm: time.slice(0, 5), file: `${date}_${time.slice(0, 2)}${time.slice(3, 5)}` };
 }
 
-// 리얼타임 랭킹은 매시 :40~45 갱신 → :45 전에 읽은 랭킹은 직전 시간대 것.
-// 늦은 수집(예: 01:02)은 직전 시간대 HH:59로 라벨 (00시대면 전날 23:59).
+// 리얼타임 랭킹 갱신 시각(분). 2026-11-20 실측 — 종전 가정 :40~45보다 이르다.
+// 과거 :20–:44 읽기 분포: :34 이전은 다음 시간대와 일치한 적 없음, :35부터 갱신분이 나타남.
+const RANK_UPDATE_MIN = 35;
+
+// 리얼타임 랭킹의 시간대(저장일·저장시각) 판정 — 2026-11-20 개정.
+// 종전 「:45 전 읽기 = 직전 시간대」 규칙은 갱신이 끝난 :35–:44 읽기를 한 시간 앞으로 붙였다
+// (2610 이후 HH:59 라벨 34건 중 17건이 실제로는 다음 시간대 랭킹의 중복).
+// :35 이후 = 현재 시간대, 그 전 = 직전 시간대 HH:59 (00시대면 전날 23:59).
+// :35–:44에 아직 갱신 전인 페이지는 직전 저장과 똑같으므로 호출부의 중복 생략(sameRanks)에서 걸러진다.
 function rankSlot(now = new Date()) {
   const jst = new Date(now.getTime() + 9 * 3600 * 1000);
-  if (jst.getUTCMinutes() >= 45) {
+  if (jst.getUTCMinutes() >= RANK_UPDATE_MIN) {
     const s = jst.toISOString();
     return { date: s.slice(0, 10), hm: s.slice(11, 16) };
   }
   const p = new Date(jst.getTime() - 3600 * 1000).toISOString();
   return { date: p.slice(0, 10), hm: `${p.slice(11, 13)}:59` };
+}
+
+// 직전 저장 랭킹과 순위가 완전히 같은가 (같으면 새 정보가 없다)
+function sameRanks(items, ranks) {
+  if (!ranks) return false;
+  const keys = Object.keys(ranks);
+  return keys.length === items.length && items.every((it) => ranks[it.goodscode] === it.rank);
 }
 
 function ensureDir(p) {
@@ -515,6 +529,13 @@ try {
         .filter(Boolean)
     );
     if (items.length < 50) throw new Error(`only ${items.length} items parsed`);
+    const prevRun = readJson(LASTRUN_PATH, null);
+    // 직전 저장과 같은 랭킹 = 새 정보 없음 → 저장 생략 (23:45 이후 일일 실행은 누적 18세트·스크린샷 때문에 계속)
+    const dupRealtime = sameRanks(items, prevRun && prevRun.ranks);
+    if (dupRealtime && !(t.hm >= '23:45')) {
+      console.log(`ranking identical to last saved (${prevRun.captured}) -> nothing saved`);
+      break realtime;
+    }
     const slot = rankSlot(); // 리얼타임 행·워치 스크린샷의 저장일/저장시각 (랭킹을 읽은 시점 기준)
     // 종료 다음날 유예 실행(capture.yml)이 :45를 넘겨 읽었으면 이벤트 후 랭킹 → 저장 없이 종료
     if (EVENT_END_DATE && slot.date > EVENT_END_DATE) {
@@ -786,7 +807,9 @@ try {
 
     // append to single cumulative CSV
     const body = rows.map((r) => KEYS.map((k) => csvField(r[k])).join(',')).join('\r\n') + '\r\n';
-    if (!fs.existsSync(CUM_PATH)) {
+    if (dupRealtime) {
+      console.log('realtime rows skipped: identical to last saved (daily run continues)');
+    } else if (!fs.existsSync(CUM_PATH)) {
       fs.writeFileSync(CUM_PATH, '﻿' + LABELS.join(',') + '\r\n' + body); // BOM for Excel
     } else {
       fs.appendFileSync(CUM_PATH, body);
@@ -911,7 +934,9 @@ try {
         }
       }
       fs.appendFileSync(CUM_PATH, amountRows.map((r) => KEYS.map((k) => csvField(r[k])).join(',')).join('\r\n') + '\r\n');
-      fs.writeFileSync(LASTRUN_PATH, JSON.stringify({ captured: `${t.date} ${t.hm}`, ranks, amountRanks }));
+      // watchBest를 빠뜨리면 다음 실행(같은 날짜 슬롯)이 모든 워치 브랜드를 「갱신」으로 보고 그날 최고 순위 스크린샷을
+      // 더 낮은 순위로 덮어쓴다 (2026-10-01·11-01·11-03 8장 피해, 2026-11-20 git 이력에서 복원)
+      fs.writeFileSync(LASTRUN_PATH, JSON.stringify({ captured: `${t.date} ${t.hm}`, ranks, watchBest, amountRanks }));
       console.log(`rank suites saved: ${amountRows.length} rows across ${collected.length} datasets`);
     }
 
